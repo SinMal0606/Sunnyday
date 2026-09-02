@@ -1,21 +1,13 @@
 {
-  "name": "sunnydaybot",
+  "name": "discord-rpg-bot",
   "version": "1.0.0",
-  "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/SinMal0606/Sunnyday.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/SinMal0606/Sunnyday/issues"
-  },
-  "homepage": "https://github.com/SinMal0606/Sunnyday#readme"
+  "dependencies": {
+    "discord.js": "^14.0.0",
+    "mongoose": "^7.0.0",
+    "dotenv": "^16.0.0"
+  }
 }
