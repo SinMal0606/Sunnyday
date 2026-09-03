@@ -1,13 +1,26 @@
 {
-  "name": "discord-rpg-bot",
+  "name": "SunnydayBot",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "Elden Ring Nightreign style Rogue-like Discord Bot",
+  "main": "src/index.js",
+  "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "deploy": "node src/deploy-commands.js"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
-    "discord.js": "^14.0.0",
-    "mongoose": "^7.0.0",
-    "dotenv": "^16.0.0"
+    "discord.js": "^14.27.0",
+    "dotenv": "^17.4.2",
+    "mongoose": "^9.9.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }
