@@ -1,37 +1,21 @@
-import mongoose from 'mongoose';
+const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
-  discordId: {
-    type: String,
-    required: true,
-    unique: true,
-  },
-  username: {
-    type: String,
-    required: true,
-  },
-  murk: {
-    type: Number,
-    default: 0,
-  },
-  unlockedClasses: {
-    type: [String],
-    default: ['Wylder'], // class mặc định
-  },
-  // Permanent stats (cộng dồn giữa các run)
-  permanentStats: {
-    strength: { type: Number, default: 0 },
-    dexterity: { type: Number, default: 0 },
-    intelligence: { type: Number, default: 0 },
-    vigor: { type: Number, default: 0 },
-  },
-  // Thống kê
-  totalExpeditions: { type: Number, default: 0 },
-  successfulExpeditions: { type: Number, default: 0 },
-  nightlordKills: { type: Number, default: 0 },
-  highestDayReached: { type: Number, default: 0 },
-}, {
-  timestamps: true,
+  discordId: { type: String, required: true, unique: true },
+  username: { type: String },
+  murk: { type: Number, default: 0 },
+  relics: [{
+    relicId: String,
+    name: String,
+    rarity: String,
+    effects: Object,
+    equipped: { type: Boolean, default: false }
+  }],
+  unlockedCharacters: { type: [String], default: ['wylder', 'recluse', 'ironfist', 'seer'] },
+  totalRuns: { type: Number, default: 0 },
+  wins: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now },
+  lastActive: { type: Date, default: Date.now }
 });
 
-export default mongoose.model('User', userSchema);
+module.exports = mongoose.model('User', userSchema);

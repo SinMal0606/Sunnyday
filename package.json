@@ -1,26 +1,80 @@
 {
-  "name": "SunnydayBot",
+  "name": "sunnydaybot",
   "version": "1.0.0",
-  "description": "Elden Ring Nightreign style Rogue-like Discord Bot",
-  "main": "src/index.js",
-  "type": "module",
-  "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "deploy": "node src/deploy-commands.js"
+  "description": "",
+  "main": "index.js",
+  "dependencies": {
+    "anymatch": "^3.1.3",
+    "balanced-match": "^4.0.4",
+    "binary-extensions": "^2.3.0",
+    "brace-expansion": "^5.0.9",
+    "braces": "^3.0.3",
+    "bson": "^7.3.2",
+    "chokidar": "^3.6.0",
+    "debug": "^4.4.3",
+    "discord-api-types": "^0.38.54",
+    "discord.js": "^14.27.0",
+    "dotenv": "^17.4.2",
+    "fast-deep-equal": "^3.1.3",
+    "fill-range": "^7.1.1",
+    "glob-parent": "^5.1.2",
+    "has-flag": "^3.0.0",
+    "ignore-by-default": "^1.0.1",
+    "is-binary-path": "^2.1.0",
+    "is-extglob": "^2.1.1",
+    "is-glob": "^4.0.3",
+    "is-number": "^7.0.0",
+    "kareem": "^3.3.0",
+    "lodash": "^4.18.1",
+    "lodash.snakecase": "^4.1.1",
+    "magic-bytes.js": "^1.13.1",
+    "memory-pager": "^1.5.0",
+    "minimatch": "^10.2.6",
+    "mongodb": "^7.5.0",
+    "mongodb-connection-string-url": "^7.0.2",
+    "mongoose": "^9.9.4",
+    "mpath": "^0.9.0",
+    "mquery": "^6.0.0",
+    "ms": "^2.1.3",
+    "nodemon": "^3.1.14",
+    "normalize-path": "^3.0.0",
+    "picomatch": "^2.3.2",
+    "pstree.remy": "^1.1.8",
+    "punycode": "^2.3.1",
+    "readdirp": "^3.6.0",
+    "semver": "^7.8.5",
+    "sift": "^17.1.3",
+    "simple-update-notifier": "^2.0.0",
+    "sparse-bitfield": "^3.0.3",
+    "supports-color": "^5.5.0",
+    "to-regex-range": "^5.0.1",
+    "touch": "^3.1.1",
+    "tr46": "^5.1.1",
+    "ts-mixer": "^6.0.4",
+    "tslib": "^2.8.1",
+    "undefsafe": "^2.0.5",
+    "undici": "^6.28.0",
+    "undici-types": "^8.3.0",
+    "webidl-conversions": "^7.0.0",
+    "whatwg-url": "^14.2.0",
+    "ws": "^8.21.3"
   },
-  "engines": {
-    "node": ">=20.0.0"
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SinMal0606/Sunnyday.git"
   },
   "keywords": [],
   "author": "",
-  "license": "MIT",
-  "dependencies": {
-    "discord.js": "^14.27.0",
-    "dotenv": "^17.4.2",
-    "mongoose": "^9.9.4"
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/SinMal0606/Sunnyday/issues"
   },
-  "devDependencies": {
-    "nodemon": "^3.1.14"
-  }
+  "homepage": "https://github.com/SinMal0606/Sunnyday#readme",
+  "scripts": {
+  "start": "node src/index.js",
+  "dev": "nodemon src/index.js",
+  "deploy": "node src/utils/deploy-commands.js"
+}
 }

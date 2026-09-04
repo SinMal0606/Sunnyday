@@ -1,42 +1,65 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import User from '../models/User.js';
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const User = require('../models/User');
+const Run = require('../models/Run');
+const nightlords = require('../data/nightlords');
 
-export default {
+module.exports = {
   data: new SlashCommandBuilder()
     .setName('start')
-    .setDescription('Bắt đầu hành trình Nightfarer của bạn'),
+    .setDescription('Bắt đầu một run mới'),
 
   async execute(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+
     const discordId = interaction.user.id;
-    const username = interaction.user.username;
 
+    // Tìm hoặc tạo user
     let user = await User.findOne({ discordId });
-
-    if (user) {
-      return interaction.reply({
-        content: `Bạn đã là Nightfarer rồi!\nDùng \`/profile\` để xem thông tin hoặc \`/expedition\` để bắt đầu chuyến thám hiểm.`,
-        ephemeral: true,
+    if (!user) {
+      user = await User.create({
+        discordId,
+        username: interaction.user.username,
+        unlockedCharacters: ['wylder', 'recluse', 'ironfist', 'seer']
       });
     }
 
-    user = await User.create({
-      discordId,
-      username,
+    // Kiểm tra run đang active
+    const existingRun = await Run.findOne({ userId: discordId, status: 'active' });
+    if (existingRun) {
+      return interaction.editReply({
+        content: 'Bạn đang có một run đang chạy. Hãy dùng `/abandon` nếu muốn bỏ cuộc.'
+      });
+    }
+
+    // Tạo run mới
+    const newRun = await Run.create({
+      userId: discordId,
+      status: 'active',
+      currentPhase: 'select_nightlord'
     });
 
-    const embed = new EmbedBuilder()
-      .setColor(0x8B0000)
-      .setTitle('⚔️ Chào mừng Nightfarer')
-      .setDescription(
-        `Bạn đã thức dậy dưới **Reign of Night**.\n\n` +
-        `Class khởi đầu đã mở khóa: **Wylder**\n` +
-        `Murk hiện tại: **0**\n\n` +
-        `Mỗi lần bắt đầu **Expedition**, bạn sẽ được chọn Nightfarer từ những class đã mở khóa.\n\n` +
-        `Dùng \`/profile\` để xem hồ sơ.`
-      )
-      .setFooter({ text: 'Limveld awaits...' })
-      .setTimestamp();
+    // Tạo button Nightlord
+    const buttons = Object.values(nightlords).map(nl => 
+      new ButtonBuilder()
+        .setCustomId(`select_nightlord:${nl.id}`)
+        .setLabel(nl.name)
+        .setStyle(ButtonStyle.Danger)
+    );
 
-    await interaction.reply({ embeds: [embed] });
-  },
+    const rows = [];
+    for (let i = 0; i < buttons.length; i += 5) {
+      rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('Nightreign - Bắt đầu Run')
+      .setDescription('Hãy chọn **Nightlord** bạn muốn khiêu chiến.')
+      .setColor(0x8B0000)
+      .addFields(
+        { name: 'Trạng thái', value: 'Đang chờ chọn Nightlord', inline: true },
+        { name: 'Run ID', value: newRun._id.toString().slice(-6), inline: true }
+      );
+
+    await interaction.editReply({ embeds: [embed], components: rows });
+  }
 };
