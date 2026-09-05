@@ -48,6 +48,31 @@ function applyCharacterToRun(run, characterId) {
   return run;
 }
 
+// Áp dụng Relic đang trang bị
+async function applyRelicsToRun(run, discordId) {
+  const User = require('../models/User');
+  const user = await User.findOne({ discordId });
+  if (!user || !user.relics) return run;
+
+  const equippedRelics = user.relics.filter(r => r.equipped);
+
+  for (const relic of equippedRelics) {
+    if (relic.effects) {
+      for (const [stat, value] of Object.entries(relic.effects)) {
+        run.stats[stat] = (run.stats[stat] || 0) + value;
+      }
+    }
+  }
+
+  // Tính lại HP/Mana
+  run.maxHp = calculateMaxHp(run.stats.vigor);
+  run.maxMana = calculateMaxMana(run.stats.mind);
+  run.hp = run.maxHp;
+  run.mana = run.maxMana;
+
+  return run;
+}
+
 module.exports = {
   getCharacter,
   getAllCharacters,

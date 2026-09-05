@@ -7,6 +7,8 @@ const runSchema = new mongoose.Schema({
     enum: ['active', 'completed', 'failed', 'abandoned'], 
     default: 'active' 
   },
+
+  combat: { type: Object, default: null },
   
   // Chọn lúc bắt đầu
   nightlord: { type: String, default: null },
@@ -41,21 +43,25 @@ const runSchema = new mongoose.Schema({
   
   // Inventory trong run
   inventory: {
-    weapons: [{ type: Object }],
-    armors: [{ type: Object }],
-    staffs: [{ type: Object }],
-    seals: [{ type: Object }],
-    consumables: [{ type: Object }],
-    equipped: {
-      weapon: { type: Object, default: null },
-      armor: { type: Object, default: null },
-      staff: { type: Object, default: null },
-      seal: { type: Object, default: null }
-    }
-  },
+  weapons: { type: Array, default: [] },
+  armors: { type: Array, default: [] },
+  staffs: { type: Array, default: [] },
+  seals: { type: Array, default: [] },
+  consumables: { type: Array, default: [] },
+  equipped: {
+    weapon: { type: Object, default: null },
+    armor: { type: Object, default: null },
+    staff: { type: Object, default: null },
+    seal: { type: Object, default: null }
+  }
+},
   
   // Lịch sử location đã đi (để debug / balance)
   locationHistory: [{ type: String }],
+  tempRewards: {
+  type: Array,
+  default: undefined
+},
   
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }

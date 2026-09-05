@@ -25,14 +25,15 @@ module.exports = {
     activeRun.currentPhase = 'ended';
     await activeRun.save();
 
-    // Cập nhật thống kê user (không tăng wins)
-    await User.findOneAndUpdate(
-      { discordId },
-      { 
-        $inc: { totalRuns: 1 },
-        lastActive: new Date()
-      }
-    );
+const murkGained = 8 + Math.floor((activeRun.locationsVisited || 0) * 0.5);
+
+await User.findOneAndUpdate(
+  { discordId },
+  { 
+    $inc: { murk: murkGained, totalRuns: 1 },
+    lastActive: new Date()
+  }
+);
 
     const embed = new EmbedBuilder()
       .setTitle('Run đã bị bỏ cuộc')

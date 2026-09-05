@@ -11,6 +11,15 @@ const userSchema = new mongoose.Schema({
     effects: Object,
     equipped: { type: Boolean, default: false }
   }],
+  murk: { type: Number, default: 0 },
+relics: [{
+  relicId: String,
+  name: String,
+  rarity: String,
+  effects: Object,
+  equipped: { type: Boolean, default: false },
+  obtainedAt: { type: Date, default: Date.now }
+}],
   unlockedCharacters: { type: [String], default: ['wylder', 'recluse', 'ironfist', 'seer'] },
   totalRuns: { type: Number, default: 0 },
   wins: { type: Number, default: 0 },

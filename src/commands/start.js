@@ -13,15 +13,20 @@ module.exports = {
 
     const discordId = interaction.user.id;
 
-    // Tìm hoặc tạo user
     let user = await User.findOne({ discordId });
-    if (!user) {
-      user = await User.create({
-        discordId,
-        username: interaction.user.username,
-        unlockedCharacters: ['wylder', 'recluse', 'ironfist', 'seer']
-      });
-    }
+      if (!user) {
+        user = await User.create({
+          discordId,
+          username: interaction.user.username,
+          unlockedCharacters: ['wylder', 'recluse', 'ironfist', 'seer']
+        });
+      } else {
+        // User cũ → cập nhật nếu thiếu
+        if (!user.unlockedCharacters || user.unlockedCharacters.length === 0) {
+          user.unlockedCharacters = ['wylder', 'recluse', 'ironfist', 'seer'];
+          await user.save();
+        }
+      }
 
     // Kiểm tra run đang active
     const existingRun = await Run.findOne({ userId: discordId, status: 'active' });

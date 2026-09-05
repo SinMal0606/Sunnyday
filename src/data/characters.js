@@ -28,16 +28,22 @@ module.exports = {
       description: 'Tăng 8% sát thương vật lý khi HP dưới 50%.'
     },
     skill: {
+      id: 'slash_flurry',
       name: 'Slash Flurry',
-      description: 'Tấn công liên hoàn 3 lần, sát thương vật lý.',
-      manaCost: 15,
-      cooldown: 2 // tính theo turn
+      description: 'Tấn công liên hoàn 3 lần (mỗi lần 55% sát thương vũ khí).',
+      manaCost: 16,
+      type: 'physical',
+      multiplier: 1.65, // tổng
+      hits: 3
     },
     ultimate: {
+      id: 'blade_storm',
       name: 'Blade Storm',
-      description: 'Gây sát thương vật lý lớn + tăng Strength tạm thời trong 3 turn.',
-      manaCost: 40,
-      cooldown: 5
+      description: 'Gây sát thương Physical lớn và tăng Strength trong 3 turn.',
+      manaCost: 42,
+      type: 'physical',
+      multiplier: 2.8,
+      buff: { stat: 'strength', value: 6, turns: 3 }
     },
     startingWeapon: 'iron_longsword'
   },
@@ -70,16 +76,20 @@ module.exports = {
       description: 'Tăng 12% sát thương Magic. Giảm 10% mana cost.'
     },
     skill: {
+      id: 'glintstone_pebble',
       name: 'Glintstone Pebble',
-      description: 'Bắn đạn phép cơ bản.',
-      manaCost: 12,
-      cooldown: 1
+      description: 'Bắn đạn phép cơ bản, scale Intelligence.',
+      manaCost: 14,
+      type: 'magic',
+      multiplier: 1.9
     },
     ultimate: {
+      id: 'comet_azur',
       name: 'Comet Azur',
-      description: 'Bắn tia phép cực mạnh trong 2 turn.',
-      manaCost: 50,
-      cooldown: 6
+      description: 'Tia phép cực mạnh gây sát thương Magic lớn.',
+      manaCost: 48,
+      type: 'magic',
+      multiplier: 3.4
     },
     startingWeapon: 'glintstone_staff'
   },
@@ -112,17 +122,22 @@ module.exports = {
       description: 'Tăng 15% Physical Resist. Giảm 8% sát thương nhận vào khi HP đầy.'
     },
     skill: {
-      name: 'Shoulder Charge',
-      description: 'Xô địch và gây sát thương vật lý + làm choáng nhẹ.',
-      manaCost: 18,
-      cooldown: 3
-    },
-    ultimate: {
-      name: 'Unbreakable Stance',
-      description: 'Tăng mạnh kháng tất cả và phản sát thương trong 3 turn.',
-      manaCost: 45,
-      cooldown: 7
-    },
+  id: 'shoulder_charge',
+  name: 'Shoulder Charge',
+  description: 'Xô địch, gây sát thương và giảm 20% sát thương địch trong 2 turn.',
+  manaCost: 18,
+  type: 'physical',
+  multiplier: 1.7,
+  debuffEnemy: { damageReduction: 0.2, turns: 2 }
+},
+ultimate: {
+  id: 'unbreakable_stance',
+  name: 'Unbreakable Stance',
+  description: 'Tăng mạnh kháng + phản 30% sát thương nhận vào trong 3 turn.',
+  manaCost: 45,
+  type: 'buff',
+  buff: { resistance: 35, reflect: 0.3, turns: 3 }
+},
     startingWeapon: 'great_hammer'
   },
 
@@ -154,17 +169,22 @@ module.exports = {
       description: 'Tăng 10% sát thương Holy. Hồi 3% max HP mỗi turn khi HP dưới 40%.'
     },
     skill: {
-      name: 'Heal',
-      description: 'Hồi HP cho bản thân.',
-      manaCost: 20,
-      cooldown: 2
-    },
-    ultimate: {
-      name: 'Lightning Spear',
-      description: 'Ném giáo sét mạnh + có chance gây status.',
-      manaCost: 42,
-      cooldown: 5
-    },
+  id: 'heal',
+  name: 'Heal',
+  description: 'Hồi HP đáng kể và giải 1 status effect.',
+  manaCost: 20,
+  type: 'heal',
+  healPercent: 0.28
+},
+ultimate: {
+  id: 'lightning_spear',
+  name: 'Lightning Spear',
+  description: 'Ném giáo sét mạnh, gây sát thương Lightning + có chance gây status.',
+  manaCost: 40,
+  type: 'lightning',
+  multiplier: 2.6,
+  chanceStatus: 'lightning' // tạm
+},
     startingWeapon: 'erdtree_seal'
   }
 };
