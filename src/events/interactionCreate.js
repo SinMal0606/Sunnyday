@@ -550,9 +550,11 @@ if (result.isShop) {
 
 // ---------- Shop: Mua vật phẩm ----------
 if (action === 'shop_buy') {
+  console.log('[SHOP] Mua item index:', value); // debug
+
   const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-  if (!run || run.currentPhase !== 'exploring') {
-    return interaction.followUp({ content: 'Không thể mua lúc này.', ephemeral: true });
+  if (!run) {
+    return interaction.followUp({ content: 'Không tìm thấy run.', ephemeral: true });
   }
 
   const itemIndex = parseInt(value);
@@ -565,18 +567,18 @@ if (action === 'shop_buy') {
     return interaction.followUp({ content: result.message, ephemeral: true });
   }
 
-  // Hiện lại shop sau khi mua
   const embed = createShopEmbed(run);
   embed.setDescription(`${result.message}\n\nRune còn lại: **${run.runes}**\n\nChọn vật phẩm tiếp theo hoặc rời cửa hàng:`);
 
   const components = createShopButtons();
-
   await interaction.editReply({ embeds: [embed], components });
   return;
 }
 
 // ---------- Shop: Rời cửa hàng ----------
 if (action === 'shop_leave') {
+  console.log('[SHOP] Rời cửa hàng');
+
   const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
   if (!run) return;
 
