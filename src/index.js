@@ -30,6 +30,17 @@ for (const file of eventFiles) {
   }
 }
 
+// Keep-alive cho Render
+const http = require('http');
+const PORT = process.env.PORT || 3000;
+
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Nightreign Bot is running');
+}).listen(PORT, '0.0.0.0', () => {
+  console.log(`Keep-alive server listening on port ${PORT}`);
+});
+
 // Kết nối MongoDB
 mongoose.connect(config.mongoURI)
   .then(() => console.log('Đã kết nối MongoDB'))
