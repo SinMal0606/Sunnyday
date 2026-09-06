@@ -54,25 +54,18 @@ async function handleLocation(run, locationId) {
   let message = `Bạn đã đến **${loc.emoji} ${loc.name}**.\n${loc.description}\n\n`;
   const updates = {};
 
-  // ====================== SITE OF GRACE ======================
-  if (locationId === 'site_of_grace') {
-    // Hồi đầy máu + mana
-    updates.hp = run.maxHp;
-    updates.mana = run.maxMana;
-
-    message += `✨ **Site of Grace**\nBạn đã hồi đầy HP và Mana.\n`;
-
-    // Hiện nút lên cấp nếu đủ rune
-    const levelUpCost = run.level * 100; // công thức tạm
-    message += `\nRune hiện có: **${run.runes}**\nChi phí lên cấp tiếp theo: **${levelUpCost}** Rune`;
-
-    return {
-      message,
-      updates,
-      isGrace: true,
-      levelUpCost
-    };
-  }
+ // ====================== SITE OF GRACE ======================
+if (locationId === 'site_of_grace') {
+  return {
+    message: `✨ **Site of Grace**\nBạn đã hồi đầy HP và Mana.`,
+    updates: {
+      hp: run.maxHp,
+      mana: run.maxMana
+    },
+    isGrace: true,
+    levelUpCost: run.level * 100
+  };
+}
 
   // ====================== SHOP ======================
   if (locationId === 'shop') {

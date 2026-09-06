@@ -438,11 +438,20 @@ if (action === 'combat_spell') {
         const result = await handleLocation(run, selectedId);
 
         run.locationsVisited += 1;
-        run.locationHistory.push(selectedId);
+run.locationHistory.push(selectedId);
 
-        if (result.updates.hp !== undefined) run.hp = result.updates.hp;
-        if (result.updates.mana !== undefined) run.mana = result.updates.mana;
-        if (result.updates.runes !== undefined) run.runes = result.updates.runes;
+// Áp dụng updates
+if (result.updates) {
+  if (result.updates.hp !== undefined) run.hp = result.updates.hp;
+  if (result.updates.mana !== undefined) run.mana = result.updates.mana;
+  if (result.updates.runes !== undefined) run.runes = result.updates.runes;
+}
+
+// Đặc biệt với Site of Grace → ép hồi đầy lần nữa cho chắc
+if (result.isGrace) {
+  run.hp = run.maxHp;
+  run.mana = run.maxMana;
+}
 
         const special = getSpecialEvent(run.locationsVisited);
         // ===== MINIBOSS =====
