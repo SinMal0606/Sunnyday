@@ -529,23 +529,74 @@ if (special === 'miniboss1' || special === 'miniboss2') {
           return interaction.editReply({ embeds: [embed], components: [row] });
         }
 
-        // Shop
-        if (result.isShop) {
-          const embed = new EmbedBuilder()
-            .setTitle(`${selected.emoji} ${selected.name}`)
-            .setDescription(result.message + `\n\nRune hiện có: **${run.runes}**`)
-            .setColor(0x9B59B6)
-            .addFields({ name: 'Location đã đi', value: `${run.locationsVisited}`, inline: true });
+        // ===== SHOP =====
+if (result.isShop) {
+  const { createShopEmbed, createShopButtons } = require('../systems/shopSystem');
 
-          const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId('shop_continue')
-              .setLabel('Rời cửa hàng')
-              .setStyle(ButtonStyle.Secondary)
-          );
+  const embed = createShopEmbed(run);
+  const components = createShopButtons();
 
-          return interaction.editReply({ embeds: [embed], components: [row] });
-        }
+  return interaction.editReply({ embeds: [embed], components });
+}
+
+// ---------- Shop: Mua vật phẩm ----------
+if (action === 'shop_buy') {
+  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+  if (!run || run.currentPhase !== 'exploring') {
+    return interaction.followUp({ content: 'Không thể mua lúc này.', ephemeral: true });
+  }
+
+  const itemIndex = parseInt(value);
+  const { buyItem, createShopEmbed, createShopButtons } = require('../systems/shopSystem');
+
+  const result = await buyItem(run, itemIndex);
+  await run.save();
+
+  if (!result.success) {
+    return interaction.followUp({ content: result.message, ephemeral: true });
+  }
+
+  // Hiện lại shop sau khi mua
+  const embed = createShopEmbed(run);
+  embed.setDescription(`${result.message}\n\nRune còn lại: **${run.runes}**\n\nChọn vật phẩm tiếp theo hoặc rời cửa hàng:`);
+
+  const components = createShopButtons();
+
+  await interaction.editReply({ embeds: [embed], components });
+  return;
+}
+
+// ---------- Shop: Rời cửa hàng ----------
+if (action === 'shop_leave') {
+  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+  if (!run) return;
+
+  const { generateLocationChoices } = require('../systems/locationSystem');
+  const nextChoices = generateLocationChoices(3);
+
+  const nextButtons = nextChoices.map(loc =>
+    new ButtonBuilder()
+      .setCustomId(`select_location:${loc.id}`)
+      .setLabel(`${loc.emoji} ${loc.name}`)
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const row = new ActionRowBuilder().addComponents(nextButtons);
+
+  const embed = new EmbedBuilder()
+    .setTitle('Rời cửa hàng')
+    .setDescription('Bạn đã rời cửa hàng.\nHãy chọn địa điểm tiếp theo:')
+    .setColor(0x3498DB)
+    .addFields(
+      { name: 'Location đã đi', value: `${run.locationsVisited}`, inline: true },
+      { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
+      { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
+      { name: 'Runes', value: `${run.runes}`, inline: true }
+    );
+
+  await interaction.editReply({ embeds: [embed], components: [row] });
+  return;
+}
 
         // Miniboss
         if (special) {
