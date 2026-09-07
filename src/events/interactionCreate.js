@@ -1546,7 +1546,7 @@ const match = createMatch(
   }
 );
 
-const { updateBothPlayers, createPvPEmbed, createPvPButtons } = require('../systems/pvpSystem');
+const { updateBothPlayers, createPvPButtons } = require('../systems/pvpSystem');
 
 // Cập nhật message của CẢ 2 người (người đang chờ + bạn)
 await updateBothPlayers(interaction.client, match);
