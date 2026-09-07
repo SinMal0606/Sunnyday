@@ -9,8 +9,10 @@ module.exports = {
     .setDescription('Bắt đầu một run mới'),
 
   async execute(interaction) {
-    // Defer ngay lập tức
+  // Chỉ defer 1 lần, và kiểm tra trước
+  if (!interaction.deferred && !interaction.replied) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  }
 
     try {
       const discordId = interaction.user.id;
