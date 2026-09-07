@@ -1351,30 +1351,39 @@ if (action === 'skip_save_build') {
 // ---------- PvP: Chọn build ----------
 if (action === 'pvp_select_build') {
   const buildIndex = parseInt(value);
-  const user = await User.findOne({ discordId: interaction.user.id });
+  const userId = interaction.user.id;
+
+  const user = await User.findOne({ discordId: userId });
   if (!user?.savedBuilds?.[buildIndex]) {
     return interaction.followUp({ content: 'Build không hợp lệ.', flags: MessageFlags.Ephemeral });
   }
 
-  const { addToQueue, findOpponent, removeFromQueue, matches } = require('../systems/pvpSystem');
-  const myId = interaction.user.id;
+  const {
+    addToQueue,
+    removeFromQueue,
+    findOpponent,
+    createMatch,
+    getMatchByUser
+  } = require('../systems/pvpSystem');
+
+  if (getMatchByUser(userId)) {
+    return interaction.followUp({ content: 'Bạn đang trong trận PvP.', flags: MessageFlags.Ephemeral });
+  }
+
+  removeFromQueue(userId); // xóa queue cũ nếu có
+
   const myBuild = user.savedBuilds[buildIndex];
+  const opponent = findOpponent(userId);
 
-  // Đã trong queue?
-  removeFromQueue(myId);
-
-  const opponent = findOpponent(myId);
-
+  // Không có đối thủ → vào hàng chờ
   if (!opponent) {
-    // Vào hàng chờ
-    addToQueue(myId, {
+    addToQueue(userId, {
       build: myBuild,
-      username: interaction.user.username,
-      channelId: interaction.channelId
+      username: interaction.user.username
     });
 
     await interaction.editReply({
-      content: 'Đã vào hàng chờ PvP...\nĐang tìm đối thủ.',
+      content: `Đã chọn build **${myBuild.name}**.\n⏳ Đang tìm đối thủ...`,
       embeds: [],
       components: [
         new ActionRowBuilder().addComponents(
@@ -1391,55 +1400,40 @@ if (action === 'pvp_select_build') {
   // Có đối thủ → tạo match
   removeFromQueue(opponent.id);
 
-  const matchId = `pvp_${Date.now()}`;
-  const p1 = {
-    id: myId,
-    username: interaction.user.username,
-    build: myBuild,
-    hp: myBuild.maxHp,
-    maxHp: myBuild.maxHp,
-    mana: myBuild.maxMana,
-    maxMana: myBuild.maxMana,
-    stats: myBuild.stats,
-    equipped: myBuild.equipped
-  };
-  const p2 = {
-    id: opponent.id,
-    username: opponent.data.username,
-    build: opponent.data.build,
-    hp: opponent.data.build.maxHp,
-    maxHp: opponent.data.build.maxHp,
-    mana: opponent.data.build.maxMana,
-    maxMana: opponent.data.build.maxMana,
-    stats: opponent.data.build.stats,
-    equipped: opponent.data.build.equipped
-  };
+  const match = createMatch(
+    { id: userId, username: interaction.user.username, build: myBuild },
+    { id: opponent.id, username: opponent.data.username, build: opponent.data.build }
+  );
 
-  matches.set(matchId, {
-    player1: p1,
-    player2: p2,
-    turn: 1,
-    log: ['PvP bắt đầu!'],
-    currentTurn: p1.id // p1 đi trước
-  });
-
-  // Thông báo cả 2 (đơn giản: edit reply của người vừa bấm)
-  // Bản đầy đủ nên DM hoặc gửi message vào channel chung
-
+  // Thông báo người vừa bấm (player1)
   await interaction.editReply({
-    content: `Tìm thấy đối thủ: **${p2.username}**!\nMatch ID: \`${matchId}\`\n(Combat PvP sẽ hiện ở bước tiếp theo)`,
+    content:
+      `✅ Tìm thấy đối thủ: **${opponent.data.username}**!\n` +
+      `Match: \`${match.id}\`\n` +
+      `Bạn đi trước.\n\n` +
+      `*(Bước tiếp theo: hiện màn hình combat PvP)*`,
     embeds: [],
     components: []
   });
 
-  // TODO: Gửi combat embed cho cả 2 người
+  // Thông báo người đang chờ (player2) — nếu họ còn interaction cũ thì khó edit.
+  // Bản đơn giản: họ sẽ thấy thông báo khi hệ thống combat gửi message / hoặc dùng channel.
+  // Tạm thời log:
+  console.log(`[PvP] Match created: ${match.id} | ${interaction.user.username} vs ${opponent.data.username}`);
+
   return;
 }
 
+// ---------- PvP: Hủy queue ----------
 if (action === 'pvp_cancel_queue') {
   const { removeFromQueue } = require('../systems/pvpSystem');
   removeFromQueue(interaction.user.id);
-  await interaction.editReply({ content: 'Đã hủy tìm trận PvP.', embeds: [], components: [] });
+
+  await interaction.editReply({
+    content: 'Đã hủy tìm trận PvP.',
+    embeds: [],
+    components: []
+  });
   return;
 }
     } catch (error) {

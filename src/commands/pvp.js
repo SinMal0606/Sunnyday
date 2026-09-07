@@ -1,5 +1,13 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
+const {
+  SlashCommandBuilder,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  MessageFlags
+} = require('discord.js');
 const User = require('../models/User');
+const { isInQueue, getMatchByUser } = require('../systems/pvpSystem');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -9,24 +17,38 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const user = await User.findOne({ discordId: interaction.user.id });
+    const userId = interaction.user.id;
+
+    // Đang trong trận?
+    if (getMatchByUser(userId)) {
+      return interaction.editReply('Bạn đang trong một trận PvP. Hãy hoàn thành trận đó trước.');
+    }
+
+    // Đang trong queue?
+    if (isInQueue(userId)) {
+      return interaction.editReply('Bạn đang trong hàng chờ PvP. Dùng nút **Hủy tìm trận** hoặc đợi đối thủ.');
+    }
+
+    const user = await User.findOne({ discordId: userId });
     if (!user) {
       return interaction.editReply('Bạn chưa có tài khoản. Hãy `/start` trước.');
     }
 
     if (!user.savedBuilds || user.savedBuilds.length === 0) {
-      return interaction.editReply('Bạn chưa có build nào.\nHãy chơi hết một run rồi **Lưu Build** khi kết thúc.');
+      return interaction.editReply(
+        'Bạn chưa có build nào.\nHãy chơi hết một run, rồi bấm **Lưu Build** khi kết thúc.'
+      );
     }
 
     const embed = new EmbedBuilder()
-      .setTitle('PvP – Chọn Build')
-      .setDescription('Chọn 1 build để mang vào PvP:')
+      .setTitle('⚔️ PvP – Chọn Build')
+      .setDescription('Chọn 1 build để mang vào đấu:')
       .setColor(0xE74C3C);
 
     user.savedBuilds.forEach((b, i) => {
       embed.addFields({
         name: `${i + 1}. ${b.name}`,
-        value: `Level ${b.level} | HP ${b.maxHp} | Mana ${b.maxMana}`,
+        value: `Level **${b.level}** | HP **${b.maxHp}** | Mana **${b.maxMana}**`,
         inline: false
       });
     });
