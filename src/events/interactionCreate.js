@@ -156,9 +156,9 @@ if (interaction.isChatInputCommand()) {
     }
 
     // ====================== BUTTON ======================
-    if (!interaction.isButton()) return;
+if (!interaction.isButton()) return;
 
-// Chỉ 1 lần duy nhất
+// Chỉ defer nếu chưa acknowledged
 if (!interaction.deferred && !interaction.replied) {
   try {
     await interaction.deferUpdate();
@@ -166,9 +166,12 @@ if (!interaction.deferred && !interaction.replied) {
     console.error('deferUpdate failed:', err.message);
     return;
   }
+} else {
+  console.log('Interaction đã deferred/replied, bỏ qua defer');
 }
 
-    const [action, value] = interaction.customId.split(':');
+const [action, value] = interaction.customId.split(':');
+console.log('[BUTTON]', action, value);
 
     try {
       // ---------- Inventory ----------
@@ -592,35 +595,48 @@ if (!interaction.deferred && !interaction.replied) {
 
       // ---------- Grace / Shop Continue ----------
       if (action === 'grace_continue' || action === 'shop_continue') {
-        const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-        if (!run || run.currentPhase !== 'exploring') return;
+  console.log('[GRACE] continue');
 
-        const nextChoices = generateLocationChoices(3);
-        const nextButtons = nextChoices.map(loc =>
-          new ButtonBuilder()
-            .setCustomId(`select_location:${loc.id}`)
-            .setLabel(`${loc.emoji} ${loc.name}`)
-            .setStyle(ButtonStyle.Secondary)
-        );
+  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+  if (!run) {
+    return interaction.followUp({
+      content: 'Không tìm thấy run.',
+      flags: MessageFlags.Ephemeral
+    }).catch(() => {});
+  }
 
-        const embed = new EmbedBuilder()
-          .setTitle('Tiếp tục hành trình')
-          .setDescription('Hãy chọn địa điểm tiếp theo:')
-          .setColor(0x3498DB)
-          .addFields(
-            { name: 'Location đã đi', value: `${run.locationsVisited}`, inline: true },
-            { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
-            { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
-            { name: 'Level', value: `${run.level}`, inline: true },
-            { name: 'Runes', value: `${run.runes}`, inline: true }
-          );
+  // Sau level up, phase vẫn nên là exploring
+  if (run.currentPhase !== 'exploring') {
+    run.currentPhase = 'exploring';
+    await run.save();
+  }
 
-        await interaction.editReply({
-          embeds: [embed],
-          components: [new ActionRowBuilder().addComponents(nextButtons)]
-        });
-        return;
-      }
+  const nextChoices = generateLocationChoices(3);
+  const nextButtons = nextChoices.map(loc =>
+    new ButtonBuilder()
+      .setCustomId(`select_location:${loc.id}`)
+      .setLabel(`${loc.emoji} ${loc.name}`)
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const embed = new EmbedBuilder()
+    .setTitle('Tiếp tục hành trình')
+    .setDescription('Hãy chọn địa điểm tiếp theo:')
+    .setColor(0x3498DB)
+    .addFields(
+      { name: 'Location đã đi', value: `${run.locationsVisited}`, inline: true },
+      { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
+      { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
+      { name: 'Level', value: `${run.level}`, inline: true },
+      { name: 'Runes', value: `${run.runes}`, inline: true }
+    );
+
+  await interaction.editReply({
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(nextButtons)]
+  });
+  return;
+}
 
       // ---------- Reward ----------
       if (action === 'reward') {
