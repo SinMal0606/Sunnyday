@@ -230,6 +230,7 @@ if (interaction.customId.startsWith('pvp_action:')) {
     createPvPEmbed,
     createPvPButtons,
     getPlayer,
+    updateBothPlayers,
     endMatch
   } = require('../systems/pvpSystem');
   const characters = require('../data/characters');
@@ -316,8 +317,6 @@ if (enemy.hp <= 0) {
 }
 
 match.log = log.slice(-12);
-
-const { updateBothPlayers, createPvPButtons } = require('../systems/pvpSystem');
 
 // ★ Quan trọng: cập nhật message CỦA CẢ 2
 await updateBothPlayers(interaction.client, match);
@@ -1545,8 +1544,6 @@ const match = createMatch(
     messageId: opponent.data.messageId || null
   }
 );
-
-const { updateBothPlayers, createPvPButtons } = require('../systems/pvpSystem');
 
 // Cập nhật message của CẢ 2 người (người đang chờ + bạn)
 await updateBothPlayers(interaction.client, match);
