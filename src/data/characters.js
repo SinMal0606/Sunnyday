@@ -5,8 +5,8 @@ module.exports = {
     description: 'Một chiến binh cân bằng, thích nghi tốt với nhiều tình huống.',
     rarity: 'starter',
     baseStats: {
-      vigor: 12,
-      strength: 14,
+      vigor: 1200,
+      strength: 140,
       dexterity: 11,
       intelligence: 8,
       faith: 9,

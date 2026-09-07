@@ -88,19 +88,16 @@ module.exports = {
     // ====================== BUTTON ======================
     if (!interaction.isButton()) return;
 
-    const [action, value] = interaction.customId.split(':');
+const [action, value] = interaction.customId.split(':');
 
-    console.log('===== BUTTON CLICKED =====');
+console.log('===== BUTTON CLICKED =====');
 console.log('customId:', interaction.customId);
 console.log('action:', action);
 console.log('value:', value);
 console.log('==========================');
 
-    try {
-      await interaction.deferUpdate();
-    } catch {
-      return;
-    }
+console.log('[DEBUG] Đã qua phần log, sắp deferUpdate');
+console.log('[DEBUG] interaction.deferred =', interaction.deferred, '| replied =', interaction.replied);
 
 if (interaction.isButton()) {
   try {
@@ -182,55 +179,72 @@ if (interaction.isButton()) {
 
       // ---------- Chọn Nightlord ----------
       if (action === 'select_nightlord') {
-        const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+  console.log('[NIGHTLORD] Bắt đầu xử lý...');
 
-        if (!run || run.currentPhase !== 'select_nightlord') {
-          return interaction.followUp({ content: 'Run không hợp lệ hoặc đã chọn Nightlord rồi.', ephemeral: true });
-        }
+  try {
+    const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+    console.log('[NIGHTLORD] Run tìm thấy:', !!run, run?.currentPhase);
 
-        const nightlord = nightlords[value];
-        if (!nightlord) {
-          return interaction.followUp({ content: 'Nightlord không tồn tại.', ephemeral: true });
-        }
+    if (!run || run.currentPhase !== 'select_nightlord') {
+      console.log('[NIGHTLORD] Run không hợp lệ');
+      return interaction.followUp({ content: 'Run không hợp lệ hoặc đã chọn Nightlord rồi.', ephemeral: true });
+    }
 
-        run.nightlord = value;
-        run.currentPhase = 'select_character';
-        await run.save();
+    const nightlord = nightlords[value];
+    console.log('[NIGHTLORD] Nightlord data:', nightlord?.name);
 
-        let user = await User.findOne({ discordId: interaction.user.id });
-        if (!user) {
-          return interaction.editReply({ content: 'Không tìm thấy user.', embeds: [], components: [] });
-        }
+    if (!nightlord) {
+      return interaction.followUp({ content: 'Nightlord không tồn tại.', ephemeral: true });
+    }
 
-        const validCharacters = ['wylder', 'recluse', 'ironfist', 'seer'];
-        user.unlockedCharacters = validCharacters;
-        await user.save();
+    run.nightlord = value;
+    run.currentPhase = 'select_character';
+    await run.save();
+    console.log('[NIGHTLORD] Đã lưu run');
 
-        const characterButtons = validCharacters.map(charId => {
-          const char = characters[charId];
-          return new ButtonBuilder()
-            .setCustomId(`select_character:${charId}`)
-            .setLabel(char.name)
-            .setStyle(ButtonStyle.Primary);
-        });
+    let user = await User.findOne({ discordId: interaction.user.id });
+    if (!user) {
+      return interaction.editReply({ content: 'Không tìm thấy user.', embeds: [], components: [] });
+    }
 
-        const rows = [];
-        for (let i = 0; i < characterButtons.length; i += 5) {
-          rows.push(new ActionRowBuilder().addComponents(characterButtons.slice(i, i + 5)));
-        }
+    const validCharacters = ['wylder', 'recluse', 'ironfist', 'seer'];
+    user.unlockedCharacters = validCharacters;
+    await user.save();
 
-        const embed = new EmbedBuilder()
-          .setTitle('Chọn Nhân vật')
-          .setDescription(`Bạn đã chọn **${nightlord.name}**.\nHãy chọn nhân vật để bắt đầu run.`)
-          .setColor(0x5865F2)
-          .addFields(
-            { name: 'Nightlord', value: nightlord.name, inline: true },
-            { name: 'Độ khó', value: nightlord.difficulty, inline: true }
-          );
+    const characterButtons = validCharacters.map(charId => {
+      const char = characters[charId];
+      return new ButtonBuilder()
+        .setCustomId(`select_character:${charId}`)
+        .setLabel(char.name)
+        .setStyle(ButtonStyle.Primary);
+    });
 
-        await interaction.editReply({ embeds: [embed], components: rows });
-        return;
-      }
+    const rows = [];
+    for (let i = 0; i < characterButtons.length; i += 5) {
+      rows.push(new ActionRowBuilder().addComponents(characterButtons.slice(i, i + 5)));
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('Chọn Nhân vật')
+      .setDescription(`Bạn đã chọn **${nightlord.name}**.\nHãy chọn nhân vật để bắt đầu run.`)
+      .setColor(0x5865F2)
+      .addFields(
+        { name: 'Nightlord', value: nightlord.name, inline: true },
+        { name: 'Độ khó', value: nightlord.difficulty, inline: true }
+      );
+
+    console.log('[NIGHTLORD] Sắp editReply...');
+    await interaction.editReply({ embeds: [embed], components: rows });
+    console.log('[NIGHTLORD] Thành công');
+    return;
+
+  } catch (err) {
+    console.error('[NIGHTLORD] Lỗi:', err);
+    try {
+      await interaction.followUp({ content: 'Có lỗi khi chọn Nightlord.', ephemeral: true });
+    } catch (_) {}
+  }
+}
 
       // ---------- Dùng Spell ----------
 if (action === 'combat_spell') {
@@ -556,66 +570,69 @@ if (result.isShop) {
   return interaction.editReply({ embeds: [embed], components });
 }
 
-// ---------- Shop: Mua vật phẩm ----------
-if (action === 'shop_buy') {
-  console.log('[SHOP] Mua item index:', value); // debug
+// ========== SHOP LEAVE ==========
+  if (action === 'shop_leave') {
+    console.log('[SHOP] Rời cửa hàng');
 
-  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-  if (!run) {
-    return interaction.followUp({ content: 'Không tìm thấy run.', ephemeral: true });
-  }
+    const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+    if (!run) {
+      return interaction.followUp({ content: 'Không tìm thấy run.', ephemeral: true }).catch(() => {});
+    }
 
-  const itemIndex = parseInt(value);
-  const { buyItem, createShopEmbed, createShopButtons } = require('../systems/shopSystem');
+    const { generateLocationChoices } = require('../systems/locationSystem');
+    const nextChoices = generateLocationChoices(3);
 
-  const result = await buyItem(run, itemIndex);
-  await run.save();
-
-  if (!result.success) {
-    return interaction.followUp({ content: result.message, ephemeral: true });
-  }
-
-  const embed = createShopEmbed(run);
-  embed.setDescription(`${result.message}\n\nRune còn lại: **${run.runes}**\n\nChọn vật phẩm tiếp theo hoặc rời cửa hàng:`);
-
-  const components = createShopButtons();
-  await interaction.editReply({ embeds: [embed], components });
-  return;
-}
-
-// ---------- Shop: Rời cửa hàng ----------
-if (action === 'shop_leave') {
-  console.log('[SHOP] Rời cửa hàng');
-
-  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-  if (!run) return;
-
-  const { generateLocationChoices } = require('../systems/locationSystem');
-  const nextChoices = generateLocationChoices(3);
-
-  const nextButtons = nextChoices.map(loc =>
-    new ButtonBuilder()
-      .setCustomId(`select_location:${loc.id}`)
-      .setLabel(`${loc.emoji} ${loc.name}`)
-      .setStyle(ButtonStyle.Secondary)
-  );
-
-  const row = new ActionRowBuilder().addComponents(nextButtons);
-
-  const embed = new EmbedBuilder()
-    .setTitle('Rời cửa hàng')
-    .setDescription('Bạn đã rời cửa hàng.\nHãy chọn địa điểm tiếp theo:')
-    .setColor(0x3498DB)
-    .addFields(
-      { name: 'Location đã đi', value: `${run.locationsVisited}`, inline: true },
-      { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
-      { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
-      { name: 'Runes', value: `${run.runes}`, inline: true }
+    const nextButtons = nextChoices.map(loc =>
+      new ButtonBuilder()
+        .setCustomId(`select_location:${loc.id}`)
+        .setLabel(`${loc.emoji} ${loc.name}`)
+        .setStyle(ButtonStyle.Secondary)
     );
 
-  await interaction.editReply({ embeds: [embed], components: [row] });
-  return;
-}
+    const row = new ActionRowBuilder().addComponents(nextButtons);
+
+    const embed = new EmbedBuilder()
+      .setTitle('Rời cửa hàng')
+      .setDescription('Bạn đã rời cửa hàng.\nHãy chọn địa điểm tiếp theo:')
+      .setColor(0x3498DB)
+      .addFields(
+        { name: 'Location đã đi', value: `${run.locationsVisited}`, inline: true },
+        { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
+        { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
+        { name: 'Runes', value: `${run.runes}`, inline: true }
+      );
+
+    await interaction.editReply({ embeds: [embed], components: [row] });
+    console.log('[SHOP] Đã rời shop thành công');
+    return;
+  }
+
+  // ========== SHOP BUY ==========
+  if (action === 'shop_buy') {
+    console.log('[SHOP] Bắt đầu mua, index =', value);
+
+    const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+    if (!run) {
+      return interaction.followUp({ content: 'Không tìm thấy run.', ephemeral: true }).catch(() => {});
+    }
+
+    const itemIndex = parseInt(value);
+    const { buyItem, createShopEmbed, createShopButtons } = require('../systems/shopSystem');
+
+    const result = await buyItem(run, itemIndex);
+    await run.save();
+
+    if (!result.success) {
+      return interaction.followUp({ content: result.message, ephemeral: true }).catch(() => {});
+    }
+
+    const embed = createShopEmbed(run);
+    embed.setDescription(`${result.message}\n\nRune còn lại: **${run.runes}**\n\nChọn vật phẩm tiếp theo hoặc rời cửa hàng:`);
+
+    await interaction.editReply({ embeds: [embed], components: createShopButtons() });
+    console.log('[SHOP] Mua thành công');
+    return;
+  }
 
         // Miniboss
         if (special) {
