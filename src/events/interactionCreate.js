@@ -835,17 +835,396 @@ if (!interaction.deferred && !interaction.replied) {
       // Giữ nguyên logic combat bạn đang dùng.
       // Quan trọng: mọi chỗ gọi createCombatButtons phải là createCombatButtons(run, false)
 
-      if (action === 'combat_attack' || action === 'combat_skill' || action === 'combat_ultimate' || action === 'combat_spell') {
-        // Bạn giữ nguyên phần combat logic đã viết trước đó.
-        // Chỉ cần đảm bảo không gọi deferUpdate() thêm lần nữa.
-        return;
-      }
+// ====================== COMBAT ======================
+if (action === 'combat_attack' || action === 'combat_skill' || action === 'combat_ultimate' || action === 'combat_spell') {
+  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+  if (!run || !run.combat) {
+    return interaction.followUp({ content: 'Không có trận đấu nào đang diễn ra.', flags: MessageFlags.Ephemeral });
+  }
 
-      if (action === 'combat_auto' || action === 'combat_stop_auto') {
-        // Giữ nguyên logic auto combat đã viết.
-        return;
-      }
+  const combat = run.combat;
+  const enemy = combat.enemy;
+  let log = combat.log || [];
+  let playerDied = false;
+  let enemyDied = false;
 
+  // Status đầu lượt
+  const playerStatusResult = processStatusEffects({ status: combat.playerStatus || {} });
+  if (playerStatusResult.damage > 0) {
+    run.hp -= playerStatusResult.damage;
+    log.push(...playerStatusResult.messages.map(m => `Bạn: ${m}`));
+    if (run.hp <= 0) {
+      run.hp = 0;
+      playerDied = true;
+    }
+  }
+
+  if (playerDied) {
+    const embed = await handleRunDefeat(run, interaction, log);
+    return interaction.editReply({ content: null, embeds: [embed], components: [] });
+  }
+
+  // Xác định hành động
+  let actionType = 'attack';
+  let actionName = 'Tấn công';
+  let manaCost = 0;
+  let spell = null;
+
+  if (action === 'combat_skill') {
+    actionType = 'skill';
+    actionName = 'Skill';
+    manaCost = characters[run.character]?.skill?.manaCost || 16;
+  } else if (action === 'combat_ultimate') {
+    actionType = 'ultimate';
+    actionName = 'Ultimate';
+    manaCost = characters[run.character]?.ultimate?.manaCost || 40;
+  } else if (action === 'combat_spell') {
+    const spellIndex = parseInt(value);
+    const staff = run.inventory?.equipped?.staff;
+    const seal = run.inventory?.equipped?.seal;
+    spell = staff?.spells?.[spellIndex] || seal?.spells?.[spellIndex];
+
+    if (!spell) {
+      return interaction.followUp({ content: 'Spell không tồn tại.', flags: MessageFlags.Ephemeral });
+    }
+    actionName = spell.name;
+    manaCost = spell.manaCost || 12;
+  }
+
+  if (run.mana < manaCost) {
+    log.push(`❌ Không đủ Mana để dùng **${actionName}**!`);
+    combat.log = log.slice(-15);
+    run.markModified('combat');
+    await run.save();
+    return interaction.editReply({
+      embeds: [createCombatEmbed(run, combat)],
+      components: createCombatButtons(run, false)
+    });
+  }
+
+  run.mana -= manaCost;
+
+  // Gây sát thương
+  if (action === 'combat_spell' && spell) {
+    const dmgInfo = calculateSpellDamage(run, spell);
+    let finalDamage = applyResistance(dmgInfo.amount, dmgInfo.type, enemy.resistances || {});
+
+    if (Math.random() < 0.07) {
+      log.push(`💨 ${enemy.name} đã né **${spell.name}**!`);
+    } else {
+      enemy.currentHp -= finalDamage;
+      log.push(`✨ Bạn dùng **${spell.name}** gây **${finalDamage}** sát thương ${dmgInfo.type}!`);
+    }
+  } else {
+    const dmgInfo = calculatePlayerDamage(run, actionType);
+
+    if (dmgInfo.isHeal) {
+      const heal = dmgInfo.healAmount || Math.floor(run.maxHp * 0.25);
+      run.hp = Math.min(run.maxHp, run.hp + heal);
+      log.push(`✨ Bạn hồi **${heal}** HP!`);
+    } else {
+      let finalDamage = applyResistance(dmgInfo.amount, dmgInfo.type, enemy.resistances || {});
+      if (Math.random() < 0.07) {
+        log.push(`💨 ${enemy.name} đã né **${actionName}**!`);
+      } else {
+        enemy.currentHp -= finalDamage;
+        log.push(`⚔️ Bạn dùng **${actionName}** gây **${finalDamage}** sát thương ${dmgInfo.type}!`);
+      }
+    }
+  }
+
+  if (enemy.currentHp <= 0) {
+    enemy.currentHp = 0;
+    enemyDied = true;
+  }
+
+  // Địch đánh lại
+  if (!enemyDied) {
+    const enemyStatusResult = processStatusEffects(enemy);
+    if (enemyStatusResult.damage > 0) {
+      enemy.currentHp -= enemyStatusResult.damage;
+      log.push(...enemyStatusResult.messages.map(m => `${enemy.name}: ${m}`));
+      if (enemy.currentHp <= 0) {
+        enemy.currentHp = 0;
+        enemyDied = true;
+      }
+    }
+
+    if (!enemyDied) {
+      if (tryDodge(run)) {
+        log.push(`💨 Bạn đã **né** đòn của ${enemy.name}!`);
+      } else {
+        let enemyDmg = calculateEnemyDamage(enemy, run);
+        const playerResist = {
+          physical: (run.stats?.strength || 10) * 0.8,
+          fire: (run.stats?.vigor || 10) * 0.6,
+          magic: (run.stats?.intelligence || 10) * 0.7,
+          lightning: (run.stats?.dexterity || 10) * 0.7,
+          holy: (run.stats?.faith || 10) * 0.7
+        };
+        enemyDmg = applyResistance(enemyDmg, enemy.damageType, playerResist);
+        run.hp -= enemyDmg;
+        log.push(`💥 ${enemy.name} gây **${enemyDmg}** sát thương ${enemy.damageType}!`);
+
+        if (enemy.canApply && Math.random() < 0.3) {
+          if (!combat.playerStatus) combat.playerStatus = {};
+          combat.playerStatus[enemy.canApply] = (combat.playerStatus[enemy.canApply] || 0) + 2;
+          log.push(`⚠️ Bạn bị dính **${enemy.canApply}**!`);
+        }
+
+        if (run.hp <= 0) {
+          run.hp = 0;
+          playerDied = true;
+        }
+      }
+    }
+  }
+
+  combat.turn += 1;
+  combat.log = log.slice(-15);
+  combat.enemy = enemy;
+
+  // Thua
+  if (playerDied) {
+    const embed = await handleRunDefeat(run, interaction, log);
+    return interaction.editReply({ content: null, embeds: [embed], components: [] });
+  }
+
+  // Thắng
+  if (enemyDied) {
+    const isNightlord = combat.isNightlord;
+    const isMiniboss = combat.isMiniboss;
+    const gainedRunes = Math.floor(
+      Math.random() * (enemy.runeReward[1] - enemy.runeReward[0] + 1)
+    ) + enemy.runeReward[0];
+
+    run.runes = (run.runes || 0) + gainedRunes;
+    run.combat = null;
+
+    if (isNightlord) {
+      run.status = 'completed';
+      run.currentPhase = 'ended';
+      const murkGained = 80 + run.locationsVisited * 2 + run.level * 3;
+
+      await User.findOneAndUpdate(
+        { discordId: interaction.user.id },
+        { $inc: { murk: murkGained, wins: 1, totalRuns: 1 }, lastActive: new Date() }
+      );
+      await run.save();
+
+      const embed = new EmbedBuilder()
+        .setTitle('🎉 CHIẾN THẮNG NIGHTLORD!')
+        .setDescription(`Bạn đã đánh bại **${enemy.name}**!`)
+        .setColor(0xF1C40F)
+        .addFields(
+          { name: 'Rune', value: `${gainedRunes}`, inline: true },
+          { name: 'Murk', value: `${murkGained}`, inline: true },
+          { name: 'Level', value: `${run.level}`, inline: true }
+        );
+
+      return interaction.editReply({ embeds: [embed], components: [] });
+    }
+
+    const lootTier = isMiniboss ? 2 : 1;
+    const rewards = generateRewards(lootTier);
+    run.tempRewards = rewards;
+
+    if (combat.minibossType === 'miniboss2' || run.currentPhase === 'miniboss2') {
+      run.currentPhase = 'rest';
+    } else {
+      run.currentPhase = 'exploring';
+    }
+
+    run.markModified('tempRewards');
+    await run.save();
+
+    const { embed, row } = createRewardEmbed(run, `${enemy.emoji} ${enemy.name}`, rewards, gainedRunes);
+    return interaction.editReply({
+      content: `🎉 **Chiến thắng${isMiniboss ? ' MINIBOSS' : ''}!** +${gainedRunes} Rune`,
+      embeds: [embed],
+      components: [row]
+    });
+  }
+
+  // Còn đánh tiếp
+  run.combat = combat;
+  run.markModified('combat');
+  await run.save();
+
+  await interaction.editReply({
+    embeds: [createCombatEmbed(run, combat)],
+    components: createCombatButtons(run, false)
+  });
+  return;
+}
+
+// ---------- Auto Combat ----------
+if (action === 'combat_auto') {
+  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+  if (!run || !run.combat) return;
+
+  run.combat.isAuto = true;
+  let log = run.combat.log || [];
+  let safety = 0;
+  const maxTurns = 15;
+
+  while (run.combat?.isAuto && safety < maxTurns) {
+    safety++;
+    const enemy = run.combat.enemy;
+    let playerDied = false;
+    let enemyDied = false;
+
+    const playerStatusResult = processStatusEffects({ status: run.combat.playerStatus || {} });
+    if (playerStatusResult.damage > 0) {
+      run.hp -= playerStatusResult.damage;
+      log.push(...playerStatusResult.messages.map(m => `Bạn: ${m}`));
+      if (run.hp <= 0) {
+        run.hp = 0;
+        playerDied = true;
+      }
+    }
+    if (playerDied) break;
+
+    const nextAction = runAutoTurn(run);
+    let actionType = 'attack';
+    let actionName = 'Tấn công';
+    let manaCost = 0;
+
+    if (nextAction === 'combat_skill') {
+      actionType = 'skill';
+      actionName = 'Skill';
+      manaCost = characters[run.character]?.skill?.manaCost || 16;
+    } else if (nextAction === 'combat_ultimate') {
+      actionType = 'ultimate';
+      actionName = 'Ultimate';
+      manaCost = characters[run.character]?.ultimate?.manaCost || 40;
+    }
+
+    if (run.mana < manaCost) {
+      actionType = 'attack';
+      actionName = 'Tấn công';
+      manaCost = 0;
+    }
+    run.mana -= manaCost;
+
+    const dmgInfo = calculatePlayerDamage(run, actionType);
+    if (dmgInfo.isHeal) {
+      const heal = dmgInfo.healAmount || Math.floor(run.maxHp * 0.25);
+      run.hp = Math.min(run.maxHp, run.hp + heal);
+      log.push(`✨ Auto hồi **${heal}** HP!`);
+    } else {
+      let finalDamage = applyResistance(dmgInfo.amount, dmgInfo.type, enemy.resistances || {});
+      enemy.currentHp -= finalDamage;
+      log.push(`⚔️ Auto **${actionName}** gây **${finalDamage}** sát thương!`);
+    }
+
+    if (enemy.currentHp <= 0) {
+      enemy.currentHp = 0;
+      enemyDied = true;
+    }
+
+    if (!enemyDied) {
+      if (tryDodge(run)) {
+        log.push(`💨 Bạn né được đòn địch!`);
+      } else {
+        let enemyDmg = calculateEnemyDamage(enemy, run);
+        const playerResist = {
+          physical: (run.stats?.strength || 10) * 0.8,
+          fire: (run.stats?.vigor || 10) * 0.6,
+          magic: (run.stats?.intelligence || 10) * 0.7,
+          lightning: (run.stats?.dexterity || 10) * 0.7,
+          holy: (run.stats?.faith || 10) * 0.7
+        };
+        enemyDmg = applyResistance(enemyDmg, enemy.damageType, playerResist);
+        run.hp -= enemyDmg;
+        log.push(`💥 ${enemy.name} gây **${enemyDmg}** sát thương!`);
+        if (run.hp <= 0) {
+          run.hp = 0;
+          playerDied = true;
+        }
+      }
+    }
+
+    run.combat.turn += 1;
+    run.combat.log = log.slice(-15);
+    run.combat.enemy = enemy;
+    if (playerDied || enemyDied) break;
+  }
+
+  run.markModified('combat');
+
+  if (run.hp <= 0) {
+    const embed = await handleRunDefeat(run, interaction, log);
+    return interaction.editReply({ content: null, embeds: [embed], components: [] });
+  }
+
+  if (run.combat.enemy.currentHp <= 0) {
+    const enemy = run.combat.enemy;
+    const isNightlord = run.combat.isNightlord;
+    const isMiniboss = run.combat.isMiniboss;
+    const gainedRunes = Math.floor(Math.random() * (enemy.runeReward[1] - enemy.runeReward[0] + 1)) + enemy.runeReward[0];
+    run.runes = (run.runes || 0) + gainedRunes;
+    run.combat = null;
+
+    if (isNightlord) {
+      run.status = 'completed';
+      run.currentPhase = 'ended';
+      const murkGained = 80 + run.locationsVisited * 2 + run.level * 3;
+      await User.findOneAndUpdate(
+        { discordId: interaction.user.id },
+        { $inc: { murk: murkGained, wins: 1, totalRuns: 1 } }
+      );
+      await run.save();
+
+      return interaction.editReply({
+        embeds: [new EmbedBuilder()
+          .setTitle('🎉 CHIẾN THẮNG NIGHTLORD!')
+          .setDescription(`Bạn đã đánh bại **${enemy.name}**!\n+${gainedRunes} Rune | +${murkGained} Murk`)
+          .setColor(0xF1C40F)],
+        components: []
+      });
+    }
+
+    const lootTier = isMiniboss ? 2 : 1;
+    const rewards = generateRewards(lootTier);
+    run.tempRewards = rewards;
+    if (run.currentPhase === 'miniboss2') run.currentPhase = 'rest';
+    else run.currentPhase = 'exploring';
+    run.markModified('tempRewards');
+    await run.save();
+
+    const { embed, row } = createRewardEmbed(run, `${enemy.emoji} ${enemy.name}`, rewards, gainedRunes);
+    return interaction.editReply({
+      content: `🎉 **Chiến thắng (Auto)!** +${gainedRunes} Rune`,
+      embeds: [embed],
+      components: [row]
+    });
+  }
+
+  await run.save();
+  await interaction.editReply({
+    content: `🔄 Auto đã chạy ${safety} lượt.`,
+    embeds: [createCombatEmbed(run, run.combat)],
+    components: createCombatButtons(run, false)
+  });
+  return;
+}
+
+if (action === 'combat_stop_auto') {
+  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+  if (!run || !run.combat) return;
+
+  run.combat.isAuto = false;
+  run.markModified('combat');
+  await run.save();
+
+  await interaction.editReply({
+    content: 'Đã tắt Auto.',
+    embeds: [createCombatEmbed(run, run.combat)],
+    components: createCombatButtons(run, false)
+  });
+  return;
+}
     } catch (error) {
       console.error('Button error:', error);
       try {
