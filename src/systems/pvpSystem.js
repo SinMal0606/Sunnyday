@@ -35,7 +35,9 @@ function createMatch(player1, player2) {
       mana: player1.build.maxMana,
       maxMana: player1.build.maxMana,
       stats: player1.build.stats,
-      equipped: player1.build.equipped || {}
+      equipped: player1.build.equipped || {},
+      channelId: player1.channelId || null,
+      messageId: player1.messageId || null
     },
     player2: {
       id: player2.id,
@@ -46,16 +48,49 @@ function createMatch(player1, player2) {
       mana: player2.build.maxMana,
       maxMana: player2.build.maxMana,
       stats: player2.build.stats,
-      equipped: player2.build.equipped || {}
+      equipped: player2.build.equipped || {},
+      channelId: player2.channelId || null,
+      messageId: player2.messageId || null
     },
     turn: 1,
     log: ['⚔️ PvP bắt đầu!'],
-    currentTurn: player1.id, // player1 đi trước
+    currentTurn: player1.id,
     status: 'active'
   };
 
   matches.set(matchId, match);
   return match;
+}
+
+async function updateBothPlayers(client, match) {
+  const { createPvPEmbed, createPvPButtons } = module.exports;
+
+  const players = [match.player1, match.player2];
+
+  for (const p of players) {
+    if (!p.channelId || !p.messageId) continue;
+
+    try {
+      const channel = await client.channels.fetch(p.channelId);
+      if (!channel) continue;
+
+      const message = await channel.messages.fetch(p.messageId);
+      if (!message) continue;
+
+      const isMyTurn = match.currentTurn === p.id && match.status === 'active';
+      const content = match.status !== 'active'
+        ? (match.winnerId === p.id ? '🎉 Bạn đã thắng!' : '💀 Bạn đã thua.')
+        : (isMyTurn ? '▶️ **Đến lượt bạn!**' : `⏳ Đợi **${match.currentTurn === match.player1.id ? match.player1.username : match.player2.username}**...`);
+
+      await message.edit({
+        content,
+        embeds: [createPvPEmbed(match)],
+        components: match.status === 'active' ? createPvPButtons(match, p.id) : []
+      });
+    } catch (err) {
+      console.error(`[PvP] Không update message của ${p.username}:`, err.message);
+    }
+  }
 }
 
 function getMatch(matchId) {
@@ -150,5 +185,6 @@ module.exports = {
   endMatch,
   createPvPEmbed,
   createPvPButtons,
-  getPlayer
+  getPlayer,
+  updateBothPlayers
 };
