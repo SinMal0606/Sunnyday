@@ -1,5 +1,6 @@
 const queue = new Map();   // userId -> { build, username, timestamp }
 const matches = new Map(); // matchId -> match data
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 function addToQueue(userId, data) {
   queue.set(userId, { ...data, timestamp: Date.now() });
@@ -74,6 +75,68 @@ function endMatch(matchId) {
   if (match) match.status = 'ended';
 }
 
+function createPvPEmbed(match) {
+  const p1 = match.player1;
+  const p2 = match.player2;
+  const turnUser = match.currentTurn === p1.id ? p1 : p2;
+
+  const bar = (cur, max) => {
+    const percent = Math.max(0, Math.min(100, (cur / max) * 100));
+    const filled = Math.round(percent / 10);
+    return '█'.repeat(filled) + '░'.repeat(10 - filled);
+  };
+
+  return new EmbedBuilder()
+    .setTitle(`⚔️ PvP – ${p1.username} vs ${p2.username}`)
+    .setDescription(match.log.slice(-8).join('\n') || 'Trận đấu bắt đầu!')
+    .setColor(0xE74C3C)
+    .addFields(
+      {
+        name: `${p1.username}${match.currentTurn === p1.id ? ' ▶️' : ''}`,
+        value: `HP: ${bar(p1.hp, p1.maxHp)} **${Math.max(0, p1.hp)}/${p1.maxHp}**\nMana: **${p1.mana}/${p1.maxMana}**\nLv.${p1.build.level} ${p1.build.character}`,
+        inline: true
+      },
+      {
+        name: `${p2.username}${match.currentTurn === p2.id ? ' ▶️' : ''}`,
+        value: `HP: ${bar(p2.hp, p2.maxHp)} **${Math.max(0, p2.hp)}/${p2.maxHp}**\nMana: **${p2.mana}/${p2.maxMana}**\nLv.${p2.build.level} ${p2.build.character}`,
+        inline: true
+      },
+      { name: 'Turn', value: `${match.turn} – Lượt của **${turnUser.username}**`, inline: false }
+    )
+    .setFooter({ text: `Match: ${match.id}` });
+}
+
+function createPvPButtons(match, userId) {
+  const isMyTurn = match.currentTurn === userId;
+  const disabled = !isMyTurn || match.status !== 'active';
+
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`pvp_action:${match.id}:attack`)
+        .setLabel('Tấn công')
+        .setStyle(ButtonStyle.Danger)
+        .setDisabled(disabled),
+      new ButtonBuilder()
+        .setCustomId(`pvp_action:${match.id}:skill`)
+        .setLabel('Skill')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(disabled),
+      new ButtonBuilder()
+        .setCustomId(`pvp_action:${match.id}:ultimate`)
+        .setLabel('Ultimate')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(disabled)
+    )
+  ];
+}
+
+function getPlayer(match, userId) {
+  if (match.player1.id === userId) return { me: match.player1, enemy: match.player2, key: 'player1' };
+  if (match.player2.id === userId) return { me: match.player2, enemy: match.player1, key: 'player2' };
+  return null;
+}
+
 module.exports = {
   queue,
   matches,
@@ -84,5 +147,8 @@ module.exports = {
   createMatch,
   getMatch,
   getMatchByUser,
-  endMatch
+  endMatch,
+  createPvPEmbed,
+  createPvPButtons,
+  getPlayer
 };
