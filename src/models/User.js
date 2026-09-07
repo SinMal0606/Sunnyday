@@ -20,6 +20,21 @@ relics: [{
   equipped: { type: Boolean, default: false },
   obtainedAt: { type: Date, default: Date.now }
 }],
+savedBuilds: [{
+  name: { type: String, default: 'Build' },
+  character: String,
+  level: Number,
+  stats: Object,
+  maxHp: Number,
+  maxMana: Number,
+  equipped: {
+    weapon: Object,
+    armor: Object,
+    staff: Object,
+    seal: Object
+  },
+  createdAt: { type: Date, default: Date.now }
+}],
   unlockedCharacters: { type: [String], default: ['wylder', 'recluse', 'ironfist', 'seer'] },
   totalRuns: { type: Number, default: 0 },
   wins: { type: Number, default: 0 },

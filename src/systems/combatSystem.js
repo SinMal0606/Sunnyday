@@ -324,22 +324,19 @@ function runAutoTurn(run) {
 const User = require('../models/User');
 
 async function handleRunDefeat(run, interaction, log = []) {
+  const User = require('../models/User');
+  const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+
   run.combat = null;
   run.status = 'failed';
   run.currentPhase = 'ended';
+  run.pendingBuild = true; // cho phép lưu build
 
-  // Murk an ủi
   const murkGained = 15 + Math.floor((run.locationsVisited || 0) * 0.9) + Math.floor((run.level || 1) * 1.5);
 
   await User.findOneAndUpdate(
     { discordId: interaction.user.id },
-    { 
-      $inc: { 
-        murk: murkGained, 
-        totalRuns: 1 
-      },
-      lastActive: new Date()
-    }
+    { $inc: { murk: murkGained, totalRuns: 1 }, lastActive: new Date() }
   );
 
   await run.save();
@@ -348,16 +345,28 @@ async function handleRunDefeat(run, interaction, log = []) {
     .setTitle('💀 Bạn đã thất bại')
     .setDescription(
       (log.length > 0 ? log.slice(-8).join('\n') + '\n\n' : '') +
-      `Run kết thúc.\nBạn nhận được **${murkGained} Murk** an ủi.`
+      `Run kết thúc. Bạn nhận **${murkGained} Murk** an ủi.\n\nBạn có muốn **lưu build** run này để PvP không?`
     )
     .setColor(0x7F8C8D)
     .addFields(
       { name: 'Location đã đi', value: `${run.locationsVisited || 0}`, inline: true },
       { name: 'Level', value: `${run.level || 1}`, inline: true },
-      { name: 'Murk nhận được', value: `${murkGained}`, inline: true }
+      { name: 'Murk', value: `${murkGained}`, inline: true }
     );
 
-  return embed;
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('save_build')
+      .setLabel('Lưu Build run này')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('skip_save_build')
+      .setLabel('Bỏ qua')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  // Trả về cả embed + components (sửa chỗ gọi hàm)
+  return { embed, components: [row] };
 }
 
 module.exports = {

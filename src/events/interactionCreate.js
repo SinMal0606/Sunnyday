@@ -860,8 +860,12 @@ if (action === 'combat_attack' || action === 'combat_skill' || action === 'comba
   }
 
   if (playerDied) {
-    const embed = await handleRunDefeat(run, interaction, log);
-    return interaction.editReply({ content: null, embeds: [embed], components: [] });
+    const result = await handleRunDefeat(run, interaction, log);
+return interaction.editReply({
+  content: null,
+  embeds: [result.embed],
+  components: result.components
+});
   }
 
   // Xác định hành động
@@ -986,8 +990,12 @@ if (action === 'combat_attack' || action === 'combat_skill' || action === 'comba
 
   // Thua
   if (playerDied) {
-    const embed = await handleRunDefeat(run, interaction, log);
-    return interaction.editReply({ content: null, embeds: [embed], components: [] });
+    const result = await handleRunDefeat(run, interaction, log);
+return interaction.editReply({
+  content: null,
+  embeds: [result.embed],
+  components: result.components
+});
   }
 
   // Thắng
@@ -1002,28 +1010,44 @@ if (action === 'combat_attack' || action === 'combat_skill' || action === 'comba
     run.combat = null;
 
     if (isNightlord) {
-      run.status = 'completed';
-      run.currentPhase = 'ended';
-      const murkGained = 80 + run.locationsVisited * 2 + run.level * 3;
+  run.status = 'completed';
+  run.currentPhase = 'ended';
 
-      await User.findOneAndUpdate(
-        { discordId: interaction.user.id },
-        { $inc: { murk: murkGained, wins: 1, totalRuns: 1 }, lastActive: new Date() }
-      );
-      await run.save();
+  const murkGained = 80 + run.locationsVisited * 2 + run.level * 3;
 
-      const embed = new EmbedBuilder()
-        .setTitle('🎉 CHIẾN THẮNG NIGHTLORD!')
-        .setDescription(`Bạn đã đánh bại **${enemy.name}**!`)
-        .setColor(0xF1C40F)
-        .addFields(
-          { name: 'Rune', value: `${gainedRunes}`, inline: true },
-          { name: 'Murk', value: `${murkGained}`, inline: true },
-          { name: 'Level', value: `${run.level}`, inline: true }
-        );
+  await User.findOneAndUpdate(
+    { discordId: interaction.user.id },
+    { $inc: { murk: murkGained, wins: 1, totalRuns: 1 }, lastActive: new Date() }
+  );
 
-      return interaction.editReply({ embeds: [embed], components: [] });
-    }
+  // Giữ data build để lưu (quan trọng)
+  run.pendingBuild = true;
+  await run.save();
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎉 CHIẾN THẮNG NIGHTLORD!')
+    .setDescription(`Bạn đã đánh bại **${enemy.name}**!\n\nBạn có muốn **lưu build** run này để dùng PvP không?`)
+    .setColor(0xF1C40F)
+    .addFields(
+      { name: 'Rune nhận được', value: `${gainedRunes}`, inline: true },
+      { name: 'Murk nhận được', value: `${murkGained}`, inline: true },
+      { name: 'Level cuối', value: `${run.level}`, inline: true },
+      { name: 'Location đã đi', value: `${run.locationsVisited}`, inline: true }
+    );
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('save_build')
+      .setLabel('Lưu Build run này')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('skip_save_build')
+      .setLabel('Bỏ qua')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return interaction.editReply({ embeds: [embed], components: [row] });
+}
 
     const lootTier = isMiniboss ? 2 : 1;
     const rewards = generateRewards(lootTier);
@@ -1154,8 +1178,12 @@ if (action === 'combat_auto') {
   run.markModified('combat');
 
   if (run.hp <= 0) {
-    const embed = await handleRunDefeat(run, interaction, log);
-    return interaction.editReply({ content: null, embeds: [embed], components: [] });
+    const result = await handleRunDefeat(run, interaction, log);
+return interaction.editReply({
+  content: null,
+  embeds: [result.embed],
+  components: result.components
+});
   }
 
   if (run.combat.enemy.currentHp <= 0) {
@@ -1167,23 +1195,44 @@ if (action === 'combat_auto') {
     run.combat = null;
 
     if (isNightlord) {
-      run.status = 'completed';
-      run.currentPhase = 'ended';
-      const murkGained = 80 + run.locationsVisited * 2 + run.level * 3;
-      await User.findOneAndUpdate(
-        { discordId: interaction.user.id },
-        { $inc: { murk: murkGained, wins: 1, totalRuns: 1 } }
-      );
-      await run.save();
+  run.status = 'completed';
+  run.currentPhase = 'ended';
 
-      return interaction.editReply({
-        embeds: [new EmbedBuilder()
-          .setTitle('🎉 CHIẾN THẮNG NIGHTLORD!')
-          .setDescription(`Bạn đã đánh bại **${enemy.name}**!\n+${gainedRunes} Rune | +${murkGained} Murk`)
-          .setColor(0xF1C40F)],
-        components: []
-      });
-    }
+  const murkGained = 80 + run.locationsVisited * 2 + run.level * 3;
+
+  await User.findOneAndUpdate(
+    { discordId: interaction.user.id },
+    { $inc: { murk: murkGained, wins: 1, totalRuns: 1 }, lastActive: new Date() }
+  );
+
+  // Giữ data build để lưu (quan trọng)
+  run.pendingBuild = true;
+  await run.save();
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎉 CHIẾN THẮNG NIGHTLORD!')
+    .setDescription(`Bạn đã đánh bại **${enemy.name}**!\n\nBạn có muốn **lưu build** run này để dùng PvP không?`)
+    .setColor(0xF1C40F)
+    .addFields(
+      { name: 'Rune nhận được', value: `${gainedRunes}`, inline: true },
+      { name: 'Murk nhận được', value: `${murkGained}`, inline: true },
+      { name: 'Level cuối', value: `${run.level}`, inline: true },
+      { name: 'Location đã đi', value: `${run.locationsVisited}`, inline: true }
+    );
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('save_build')
+      .setLabel('Lưu Build run này')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('skip_save_build')
+      .setLabel('Bỏ qua')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return interaction.editReply({ embeds: [embed], components: [row] });
+}
 
     const lootTier = isMiniboss ? 2 : 1;
     const rewards = generateRewards(lootTier);
@@ -1223,6 +1272,158 @@ if (action === 'combat_stop_auto') {
     embeds: [createCombatEmbed(run, run.combat)],
     components: createCombatButtons(run, false)
   });
+  return;
+}
+
+// ---------- Lưu Build ----------
+if (action === 'save_build') {
+  const run = await Run.findOne({
+    userId: interaction.user.id,
+    status: { $in: ['completed', 'failed', 'active'] }
+  }).sort({ updatedAt: -1 });
+
+  if (!run || !run.character) {
+    return interaction.followUp({ content: 'Không tìm thấy build để lưu.', flags: MessageFlags.Ephemeral });
+  }
+
+  const user = await User.findOne({ discordId: interaction.user.id });
+  if (!user) return;
+
+  if (!user.savedBuilds) user.savedBuilds = [];
+
+  // Tối đa 5 build — xóa build cũ nhất nếu đầy
+  if (user.savedBuilds.length >= 5) {
+    user.savedBuilds.shift();
+  }
+
+  const buildName = `${characters[run.character]?.name || run.character} Lv.${run.level}`;
+
+  user.savedBuilds.push({
+    name: buildName,
+    character: run.character,
+    level: run.level,
+    stats: run.stats,
+    maxHp: run.maxHp,
+    maxMana: run.maxMana,
+    equipped: {
+      weapon: run.inventory?.equipped?.weapon || null,
+      armor: run.inventory?.equipped?.armor || null,
+      staff: run.inventory?.equipped?.staff || null,
+      seal: run.inventory?.equipped?.seal || null
+    }
+  });
+
+  await user.save();
+
+  await interaction.editReply({
+    content: `Đã lưu build **${buildName}**!\nBạn có ${user.savedBuilds.length}/5 build.`,
+    embeds: [],
+    components: []
+  });
+  return;
+}
+
+if (action === 'skip_save_build') {
+  await interaction.editReply({
+    content: 'Đã bỏ qua lưu build.',
+    embeds: [],
+    components: []
+  });
+  return;
+}
+
+// ---------- PvP: Chọn build ----------
+if (action === 'pvp_select_build') {
+  const buildIndex = parseInt(value);
+  const user = await User.findOne({ discordId: interaction.user.id });
+  if (!user?.savedBuilds?.[buildIndex]) {
+    return interaction.followUp({ content: 'Build không hợp lệ.', flags: MessageFlags.Ephemeral });
+  }
+
+  const { addToQueue, findOpponent, removeFromQueue, matches } = require('../systems/pvpSystem');
+  const myId = interaction.user.id;
+  const myBuild = user.savedBuilds[buildIndex];
+
+  // Đã trong queue?
+  removeFromQueue(myId);
+
+  const opponent = findOpponent(myId);
+
+  if (!opponent) {
+    // Vào hàng chờ
+    addToQueue(myId, {
+      build: myBuild,
+      username: interaction.user.username,
+      channelId: interaction.channelId
+    });
+
+    await interaction.editReply({
+      content: 'Đã vào hàng chờ PvP...\nĐang tìm đối thủ.',
+      embeds: [],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('pvp_cancel_queue')
+            .setLabel('Hủy tìm trận')
+            .setStyle(ButtonStyle.Secondary)
+        )
+      ]
+    });
+    return;
+  }
+
+  // Có đối thủ → tạo match
+  removeFromQueue(opponent.id);
+
+  const matchId = `pvp_${Date.now()}`;
+  const p1 = {
+    id: myId,
+    username: interaction.user.username,
+    build: myBuild,
+    hp: myBuild.maxHp,
+    maxHp: myBuild.maxHp,
+    mana: myBuild.maxMana,
+    maxMana: myBuild.maxMana,
+    stats: myBuild.stats,
+    equipped: myBuild.equipped
+  };
+  const p2 = {
+    id: opponent.id,
+    username: opponent.data.username,
+    build: opponent.data.build,
+    hp: opponent.data.build.maxHp,
+    maxHp: opponent.data.build.maxHp,
+    mana: opponent.data.build.maxMana,
+    maxMana: opponent.data.build.maxMana,
+    stats: opponent.data.build.stats,
+    equipped: opponent.data.build.equipped
+  };
+
+  matches.set(matchId, {
+    player1: p1,
+    player2: p2,
+    turn: 1,
+    log: ['PvP bắt đầu!'],
+    currentTurn: p1.id // p1 đi trước
+  });
+
+  // Thông báo cả 2 (đơn giản: edit reply của người vừa bấm)
+  // Bản đầy đủ nên DM hoặc gửi message vào channel chung
+
+  await interaction.editReply({
+    content: `Tìm thấy đối thủ: **${p2.username}**!\nMatch ID: \`${matchId}\`\n(Combat PvP sẽ hiện ở bước tiếp theo)`,
+    embeds: [],
+    components: []
+  });
+
+  // TODO: Gửi combat embed cho cả 2 người
+  return;
+}
+
+if (action === 'pvp_cancel_queue') {
+  const { removeFromQueue } = require('../systems/pvpSystem');
+  removeFromQueue(interaction.user.id);
+  await interaction.editReply({ content: 'Đã hủy tìm trận PvP.', embeds: [], components: [] });
   return;
 }
     } catch (error) {
