@@ -317,7 +317,7 @@ if (enemy.hp <= 0) {
 
 match.log = log.slice(-12);
 
-const { updateBothPlayers, createPvPEmbed, createPvPButtons } = require('../systems/pvpSystem');
+const { updateBothPlayers, createPvPButtons } = require('../systems/pvpSystem');
 
 // ★ Quan trọng: cập nhật message CỦA CẢ 2
 await updateBothPlayers(interaction.client, match);
