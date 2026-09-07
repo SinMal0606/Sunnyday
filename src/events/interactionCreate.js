@@ -90,13 +90,21 @@ module.exports = {
 
     const [action, value] = interaction.customId.split(':');
 
+    console.log('===== BUTTON CLICKED =====');
+console.log('customId:', interaction.customId);
+console.log('action:', action);
+console.log('value:', value);
+console.log('==========================');
+
     try {
       await interaction.deferUpdate();
     } catch {
       return;
     }
 
-    try {
+if (interaction.isButton()) {
+  try {
+    await interaction.deferUpdate();
       // ---------- Inventory Buttons ----------
       if (action === 'inv_equip_weapon' || action === 'inv_equip_armor' ||
           action === 'inv_equip_staff' || action === 'inv_equip_seal') {
@@ -1495,11 +1503,7 @@ if (action === 'relic_select_equip') {
   return;
 }
 
-    } catch (error) {
-      console.error('Button error:', error);
-      try {
-        await interaction.followUp({ content: 'Đã xảy ra lỗi khi xử lý lựa chọn.', ephemeral: true });
-      } catch (_) {}
-    }
-  },
-};
+} catch (error) {
+    console.error('Button error:', error);
+  }
+}}}

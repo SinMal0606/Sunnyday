@@ -22,18 +22,16 @@ function createShopEmbed(run) {
 function createShopButtons() {
   const buttons = shopItems.map((item, index) =>
     new ButtonBuilder()
-      .setCustomId(`shop_buy:${index}`)
-      .setLabel(`${index + 1}. ${item.name}`)
+      .setCustomId(`shop_buy:${index}`)   // ← phải có dấu :
+      .setLabel(`${index + 1}. ${item.name}`.slice(0, 80))
       .setStyle(ButtonStyle.Primary)
   );
 
-  // Chia hàng (tối đa 5 nút / hàng)
   const rows = [];
   for (let i = 0; i < buttons.length; i += 5) {
     rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
   }
 
-  // Nút rời shop
   rows.push(
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
