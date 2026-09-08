@@ -728,101 +728,154 @@ damage = pvpWeaponClassBonus(me, damage, isSpell);
   return;
 }
 
-      // ---------- Reward ----------
-      if (action === 'reward') {
-        const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-        if (!run || !run.tempRewards || run.tempRewards.length === 0) {
-          return interaction.followUp({ content: 'Không tìm thấy phần thưởng.', flags: MessageFlags.Ephemeral });
-        }
+      // ---------- Chọn Phần thưởng ----------
+if (action === 'reward') {
+  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+  if (!run || !run.tempRewards || run.tempRewards.length === 0) {
+    return interaction.followUp({
+      content: 'Không tìm thấy phần thưởng.',
+      flags: MessageFlags.Ephemeral
+    }).catch(() => {});
+  }
 
-        const index = parseInt(value);
-        const chosen = run.tempRewards[index];
-        if (!chosen) {
-          return interaction.followUp({ content: 'Lựa chọn không hợp lệ.', flags: MessageFlags.Ephemeral });
-        }
+  const index = parseInt(value, 10);
+  const chosen = run.tempRewards[index];
+  if (!chosen) {
+    return interaction.followUp({
+      content: 'Lựa chọn không hợp lệ.',
+      flags: MessageFlags.Ephemeral
+    }).catch(() => {});
+  }
 
-        let resultMsg = '';
+  let resultMsg = '';
 
-        if (chosen.type === 'equipment') {
-          if (!run.inventory) {
-            run.inventory = { weapons: [], armors: [], staffs: [], seals: [], consumables: [], equipped: {} };
-          }
-          const eq = chosen.data;
-          if (eq.type === 'weapon') run.inventory.weapons.push(eq);
-          else if (eq.type === 'armor') run.inventory.armors.push(eq);
-          else if (eq.type === 'staff') run.inventory.staffs.push(eq);
-          else if (eq.type === 'seal') run.inventory.seals.push(eq);
+  // ===== Nhận trang bị =====
+  if (chosen.type === 'equipment') {
+    if (!run.inventory) {
+      run.inventory = {
+        weapons: [],
+        armors: [],
+        staffs: [],
+        seals: [],
+        consumables: [],
+        equipped: {}
+      };
+    }
 
-          resultMsg = `Bạn đã nhận: **${eq.name}**`;
-          if (eq.spells) resultMsg += `\nSpell: ${eq.spells.map(s => s.name).join(' + ')}`;
-        }
+    const eq = chosen.data;
+    if (eq?.type === 'weapon') run.inventory.weapons.push(eq);
+    else if (eq?.type === 'armor') run.inventory.armors.push(eq);
+    else if (eq?.type === 'staff') run.inventory.staffs.push(eq);
+    else if (eq?.type === 'seal') run.inventory.seals.push(eq);
 
-        if (chosen.type === 'buff') {
-          const buff = chosen.data;
-          run.stats[buff.stat] = (run.stats[buff.stat] || 0) + buff.value;
-          if (buff.stat === 'vigor') {
-            run.maxHp = calculateMaxHp(run.stats.vigor);
-            run.hp = Math.min(run.hp, run.maxHp);
-          }
-          if (buff.stat === 'mind') {
-            run.maxMana = calculateMaxMana(run.stats.mind);
-            run.mana = Math.min(run.mana, run.maxMana);
-          }
-          resultMsg = `Bạn đã nhận buff: **${buff.name}**`;
-        }
+    resultMsg = `Bạn đã nhận: **${eq?.name || 'Trang bị'}**`;
+    if (eq?.spells?.length) {
+      resultMsg += `\nSpell: ${eq.spells.map(s => s.name).join(' + ')}`;
+    }
+  }
 
-        run.tempRewards = undefined;
+  // ===== Nhận buff vĩnh viễn trong run =====
+  if (chosen.type === 'buff') {
+    const buff = chosen.data;
+    run.stats[buff.stat] = (run.stats[buff.stat] || 0) + buff.value;
 
-        if (run.currentPhase === 'rest') {
-          await run.save();
-          const embed = new EmbedBuilder()
-            .setTitle('🏕️ Rest Area')
-            .setDescription('Bạn đã đánh bại Miniboss 2.\nHãy nghỉ ngơi và chuẩn bị đối đầu với **Nightlord**.')
-            .setColor(0x1ABC9C)
-            .addFields(
-              { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
-              { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
-              { name: 'Level', value: `${run.level}`, inline: true },
-              { name: 'Runes', value: `${run.runes}`, inline: true }
-            );
+    if (buff.stat === 'vigor') {
+      run.maxHp = calculateMaxHp(run.stats.vigor);
+      run.hp = Math.min(run.hp, run.maxHp);
+    }
+    if (buff.stat === 'mind') {
+      run.maxMana = calculateMaxMana(run.stats.mind);
+      run.mana = Math.min(run.mana, run.maxMana);
+    }
 
-          const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('rest_heal').setLabel('Hồi đầy HP/Mana').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('rest_levelup').setLabel('Lên cấp').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('rest_fight_nightlord').setLabel('Khiêu chiến Nightlord').setStyle(ButtonStyle.Danger)
-          );
+    resultMsg = `Bạn đã nhận buff: **${buff.name}**`;
+  }
 
-          return interaction.editReply({ embeds: [embed], components: [row] });
-        }
+  run.tempRewards = undefined;
 
-        await run.save();
+  // Hồi đầy sau combat
+  run.hp = run.maxHp;
+  run.mana = run.maxMana;
 
-        const nextChoices = generateLocationChoices(3);
-        const nextButtons = nextChoices.map(loc =>
-          new ButtonBuilder()
-            .setCustomId(`select_location:${loc.id}`)
-            .setLabel(`${loc.emoji} ${loc.name}`)
-            .setStyle(ButtonStyle.Secondary)
-        );
+  // ===== Sau Miniboss 2 → Rest Area =====
+  if (run.currentPhase === 'rest') {
+    await run.save();
 
-        const embed = new EmbedBuilder()
-          .setTitle('Đã chọn phần thưởng!')
-          .setDescription(`${resultMsg}\n\nHãy chọn địa điểm tiếp theo:`)
-          .setColor(0x2ECC71)
-          .addFields(
-            { name: 'Location đã đi', value: `${run.locationsVisited}`, inline: true },
-            { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
-            { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
-            { name: 'Runes', value: `${run.runes}`, inline: true },
-            { name: 'Level', value: `${run.level}`, inline: true }
-          );
+    const embed = new EmbedBuilder()
+      .setTitle('🏕️ Rest Area')
+      .setDescription(
+        `${resultMsg}\n\nBạn đã đánh bại Miniboss 2.\nHãy nghỉ ngơi và chuẩn bị đối đầu **Nightlord**.`
+      )
+      .setColor(0x1ABC9C)
+      .addFields(
+        { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
+        { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
+        { name: 'Level', value: `${run.level}`, inline: true },
+        { name: 'Runes', value: `${run.runes}`, inline: true }
+      );
 
-        await interaction.editReply({
-          embeds: [embed],
-          components: [new ActionRowBuilder().addComponents(nextButtons)]
-        });
-        return;
-      }
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('rest_heal')
+        .setLabel('Hồi đầy HP/Mana')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId('rest_levelup')
+        .setLabel('Lên cấp')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('rest_fight_nightlord')
+        .setLabel('Khiêu chiến Nightlord')
+        .setStyle(ButtonStyle.Danger)
+    );
+
+    return interaction.editReply({ embeds: [embed], components: [row] });
+  }
+
+  // ===== Site of Grace sau combat thường / miniboss 1 =====
+  await run.save();
+
+  const levelUpCost = run.level * 100;
+  const canLevelUp = (run.runes || 0) >= levelUpCost;
+
+  const buttons = [];
+  if (canLevelUp) {
+    buttons.push(
+      new ButtonBuilder()
+        .setCustomId('post_combat_levelup')
+        .setLabel(`Lên cấp (${levelUpCost} Rune)`)
+        .setStyle(ButtonStyle.Success)
+    );
+  }
+  buttons.push(
+    new ButtonBuilder()
+      .setCustomId('post_combat_continue')
+      .setLabel('Tiếp tục khám phá')
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  const embed = new EmbedBuilder()
+    .setTitle('✨ Site of Grace')
+    .setDescription(
+      `${resultMsg}\n\n` +
+      `Bạn tìm thấy Site of Grace tại đây.\n` +
+      `HP và Mana đã **hồi đầy**.\n\n` +
+      `Rune: **${run.runes}** | Cần **${levelUpCost}** Rune để lên cấp.`
+    )
+    .setColor(0xF1C40F)
+    .addFields(
+      { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
+      { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
+      { name: 'Level', value: `${run.level}`, inline: true },
+      { name: 'Location đã đi', value: `${run.locationsVisited}`, inline: true }
+    );
+
+  await interaction.editReply({
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(buttons)]
+  });
+  return;
+}
 
       if (action === 'select_nightlord') {
   console.log('[NL] start', value);
@@ -904,11 +957,112 @@ damage = pvpWeaponClassBonus(me, damage, isSpell);
   }
 }
 
+if (action === 'post_combat_levelup') {
+  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+  if (!run) return;
+
+  const levelUpCost = run.level * 100;
+  if ((run.runes || 0) < levelUpCost) {
+    return interaction.followUp({
+      content: `Không đủ Rune! Cần ${levelUpCost}.`,
+      flags: MessageFlags.Ephemeral
+    }).catch(() => {});
+  }
+
+  run.runes -= levelUpCost;
+  run.level += 1;
+
+  const newStats = calculateStats(run.character, run.level);
+  run.stats = newStats;
+  run.maxHp = calculateMaxHp(newStats.vigor);
+  run.maxMana = calculateMaxMana(newStats.mind);
+  run.hp = run.maxHp;
+  run.mana = run.maxMana;
+
+  // Áp dụng lại trang bị nếu có
+  try {
+    applyEquipmentStats(run);
+    run.hp = run.maxHp;
+    run.mana = run.maxMana;
+  } catch (_) {}
+
+  await run.save();
+
+  const nextCost = run.level * 100;
+  const canLevelUp = run.runes >= nextCost;
+  const buttons = [];
+  if (canLevelUp) {
+    buttons.push(
+      new ButtonBuilder()
+        .setCustomId('post_combat_levelup')
+        .setLabel(`Lên cấp (${nextCost} Rune)`)
+        .setStyle(ButtonStyle.Success)
+    );
+  }
+  buttons.push(
+    new ButtonBuilder()
+      .setCustomId('post_combat_continue')
+      .setLabel('Tiếp tục khám phá')
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  const embed = new EmbedBuilder()
+    .setTitle('✨ Lên cấp thành công!')
+    .setDescription(`Bạn đã lên **Level ${run.level}**!\nCó thể lên tiếp hoặc tiếp tục khám phá.`)
+    .setColor(0x2ECC71)
+    .addFields(
+      { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
+      { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
+      { name: 'Runes', value: `${run.runes}`, inline: true }
+    );
+
+  await interaction.editReply({
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(buttons)]
+  });
+  return;
+}
+
+if (action === 'post_combat_continue') {
+  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+  if (!run) return;
+
+  run.currentPhase = 'exploring';
+  await run.save();
+
+  const nextChoices = generateLocationChoices(3);
+  const nextButtons = nextChoices.map(loc =>
+    new ButtonBuilder()
+      .setCustomId(`select_location:${loc.id}`)
+      .setLabel(`${loc.emoji} ${loc.name}`)
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const embed = new EmbedBuilder()
+    .setTitle('Tiếp tục hành trình')
+    .setDescription('Hãy chọn địa điểm tiếp theo:')
+    .setColor(0x3498DB)
+    .addFields(
+      { name: 'Location đã đi', value: `${run.locationsVisited}`, inline: true },
+      { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
+      { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
+      { name: 'Level', value: `${run.level}`, inline: true },
+      { name: 'Runes', value: `${run.runes}`, inline: true }
+    );
+
+  await interaction.editReply({
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(nextButtons)]
+  });
+  return;
+}
+
       // ---------- Rest Area ----------
       if (action === 'rest_heal') {
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run || run.currentPhase !== 'rest') return;
 
+        run.tempRewards = undefined;
         run.hp = run.maxHp;
         run.mana = run.maxMana;
         await run.save();
@@ -1019,7 +1173,6 @@ damage = pvpWeaponClassBonus(me, damage, isSpell);
 
       // ---------- Combat (Attack / Skill / Ultimate / Spell / Auto) ----------
       // Giữ nguyên logic combat bạn đang dùng.
-      // Quan trọng: mọi chỗ gọi createCombatButtons phải là createCombatButtons(run, false)
 
 // ====================== COMBAT ======================
 if (action === 'combat_attack' || action === 'combat_skill' || action === 'combat_ultimate' || action === 'combat_spell') {

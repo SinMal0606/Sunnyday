@@ -6,8 +6,8 @@ module.exports = {
     rarity: 'starter',
     preferredWeaponClass: 'sword',
     baseStats: {
-      vigor: 1200,
-      strength: 140,
+      vigor: 12,
+      strength: 14,
       dexterity: 11,
       intelligence: 8,
       faith: 9,
