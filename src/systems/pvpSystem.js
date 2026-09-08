@@ -146,22 +146,67 @@ function createPvPEmbed(match) {
 function createPvPButtons(match) {
   if (match.status !== 'active') return [];
 
-  return [
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`pvp_action:${match.id}:attack`)
-        .setLabel('Tấn công')
-        .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder()
-        .setCustomId(`pvp_action:${match.id}:skill`)
-        .setLabel('Skill')
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId(`pvp_action:${match.id}:ultimate`)
-        .setLabel('Ultimate')
-        .setStyle(ButtonStyle.Secondary)
-    )
-  ];
+  // Người đang tới lượt
+  const current =
+    match.currentTurn === match.player1.id ? match.player1 : match.player2;
+
+  const equipped = current.equipped || current.build?.equipped || {};
+  const staff = equipped.staff;
+  const seal = equipped.seal;
+
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`pvp_action:${match.id}:attack`)
+      .setLabel('Tấn công')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`pvp_action:${match.id}:skill`)
+      .setLabel('Skill')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`pvp_action:${match.id}:ultimate`)
+      .setLabel('Ultimate')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const rows = [row1];
+  const spellButtons = [];
+
+  // Spell từ Staff
+  if (staff?.spells?.length) {
+    staff.spells.forEach((sp, i) => {
+      if (!sp?.name) return;
+      spellButtons.push(
+        new ButtonBuilder()
+          .setCustomId(`pvp_action:${match.id}:spell_staff_${i}`)
+          .setLabel(`Staff: ${sp.name}`.slice(0, 80))
+          .setStyle(ButtonStyle.Primary)
+      );
+    });
+  }
+
+  // Spell từ Seal
+  if (seal?.spells?.length) {
+    seal.spells.forEach((sp, i) => {
+      if (!sp?.name) return;
+      spellButtons.push(
+        new ButtonBuilder()
+          .setCustomId(`pvp_action:${match.id}:spell_seal_${i}`)
+          .setLabel(`Seal: ${sp.name}`.slice(0, 80))
+          .setStyle(ButtonStyle.Success)
+      );
+    });
+  }
+
+  // Chỉ thêm hàng spell nếu có ít nhất 1 spell
+  if (spellButtons.length > 0) {
+    // Discord tối đa 5 nút / hàng
+    for (let i = 0; i < spellButtons.length; i += 5) {
+      rows.push(new ActionRowBuilder().addComponents(spellButtons.slice(i, i + 5)));
+    }
+  }
+
+  return rows;
 }
 
 function getPlayer(match, userId) {

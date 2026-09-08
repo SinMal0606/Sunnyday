@@ -32,10 +32,14 @@ const permanentBuffs = [
  * - 2 trang bị
  * - 1 buff chỉ số (luôn ở vị trí thứ 3)
  */
-function generateRewards(lootTier = 1) {
-  const equip1 = generateRandomEquipment(lootTier);
-  const equip2 = generateRandomEquipment(lootTier);
+function generateRewards(lootTier = 1, characterId = null) {
+  const characters = require('../data/characters');
+  const preferred = characterId
+    ? characters[characterId]?.preferredWeaponClass
+    : null;
 
+  const equip1 = generateRandomEquipment(lootTier, preferred);
+  const equip2 = generateRandomEquipment(lootTier, preferred);
   const buff = permanentBuffs[Math.floor(Math.random() * permanentBuffs.length)];
 
   return [

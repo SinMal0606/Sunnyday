@@ -4,6 +4,7 @@ module.exports = {
     name: 'Wylder',
     description: 'Một chiến binh cân bằng, thích nghi tốt với nhiều tình huống.',
     rarity: 'starter',
+    preferredWeaponClass: 'sword',
     baseStats: {
       vigor: 1200,
       strength: 140,
@@ -53,6 +54,7 @@ module.exports = {
     name: 'Recluse',
     description: 'Pháp sư thiên về Intelligence, chuyên phép thuật.',
     rarity: 'starter',
+    preferredWeaponClass: 'staff',
     baseStats: {
       vigor: 9,
       strength: 7,
@@ -99,6 +101,7 @@ module.exports = {
     name: 'Ironfist',
     description: 'Tank thuần Strength, máu dày và kháng vật lý cao.',
     rarity: 'starter',
+    preferredWeaponClass: 'greatweapon',
     baseStats: {
       vigor: 16,
       strength: 15,
@@ -146,6 +149,7 @@ ultimate: {
     name: 'Seer',
     description: 'Tín đồ Faith, dùng Incantation và hỗ trợ.',
     rarity: 'starter',
+    preferredWeaponClass: 'seal',
     baseStats: {
       vigor: 11,
       strength: 9,

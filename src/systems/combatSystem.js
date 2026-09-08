@@ -369,6 +369,29 @@ async function handleRunDefeat(run, interaction, log = []) {
   return { embed, components: [row] };
 }
 
+function applyWeaponClassBonus(run, damage) {
+  const char = characters[run.character];
+  const preferred = char?.preferredWeaponClass;
+  if (!preferred) return damage;
+
+  const eq = run.inventory?.equipped || {};
+
+  let usingPreferred = false;
+
+  if (preferred === 'staff' && eq.staff?.weaponClass === 'staff') {
+    usingPreferred = true;
+  } else if (preferred === 'seal' && eq.seal?.weaponClass === 'seal') {
+    usingPreferred = true;
+  } else if (eq.weapon?.weaponClass === preferred) {
+    usingPreferred = true;
+  }
+
+  if (usingPreferred) {
+    return Math.floor(damage * 1.1); // +10%
+  }
+  return damage;
+}
+
 module.exports = {
   createCombatState,
   createCombatEmbed,

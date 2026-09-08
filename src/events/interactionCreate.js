@@ -254,6 +254,8 @@ if (interaction.customId.startsWith('pvp_action:')) {
       }).catch(() => {});
     }
 
+    
+
     const pair = getPlayer(match, userId);
     if (!pair) return;
 
@@ -262,19 +264,44 @@ if (interaction.customId.startsWith('pvp_action:')) {
     // ★ Khai báo log ở đây — tránh "log is not defined"
     let log = match.log || [];
 
-    let manaCost = 0;
-    let actionName = 'Tấn công';
-    let multiplier = 1.0;
+let manaCost = 0;
+let actionName = 'Tấn công';
+let multiplier = 1.0;
+let damageType = 'physical';
+let isSpell = false;
+let spell = null;
 
-    if (pvpAction === 'skill') {
-      manaCost = characters[me.build.character]?.skill?.manaCost || 16;
-      actionName = 'Skill';
-      multiplier = characters[me.build.character]?.skill?.multiplier || 1.6;
-    } else if (pvpAction === 'ultimate') {
-      manaCost = characters[me.build.character]?.ultimate?.manaCost || 40;
-      actionName = 'Ultimate';
-      multiplier = characters[me.build.character]?.ultimate?.multiplier || 2.5;
-    }
+if (pvpAction === 'skill') {
+  manaCost = characters[me.build.character]?.skill?.manaCost || 16;
+  actionName = 'Skill';
+  multiplier = characters[me.build.character]?.skill?.multiplier || 1.6;
+} else if (pvpAction === 'ultimate') {
+  manaCost = characters[me.build.character]?.ultimate?.manaCost || 40;
+  actionName = 'Ultimate';
+  multiplier = characters[me.build.character]?.ultimate?.multiplier || 2.5;
+} else if (pvpAction?.startsWith('spell_')) {
+  // spell_staff_0 | spell_seal_1
+  isSpell = true;
+  const segs = pvpAction.split('_'); // ['spell', 'staff', '0']
+  const source = segs[1]; // staff | seal
+  const index = parseInt(segs[2], 10);
+
+  const equipped = me.equipped || me.build?.equipped || {};
+  const item = source === 'staff' ? equipped.staff : equipped.seal;
+  spell = item?.spells?.[index];
+
+  if (!spell) {
+    return interaction.followUp({
+      content: 'Spell không tồn tại trên build này.',
+      flags: MessageFlags.Ephemeral
+    }).catch(() => {});
+  }
+
+  actionName = spell.name;
+  manaCost = spell.manaCost || 12;
+  multiplier = spell.multiplier || 1.6;
+  damageType = spell.damageType || (source === 'staff' ? 'magic' : 'fire');
+}
 
     if (me.mana < manaCost) {
       log.push(`❌ **${me.username}** không đủ Mana!`);
@@ -299,7 +326,19 @@ if (interaction.customId.startsWith('pvp_action:')) {
     me.mana -= manaCost;
 
     const stats = me.stats || {};
-    const base = 20 + (stats.strength || 10) * 1.5 + (stats.dexterity || 10) * 0.8;
+    let base;
+
+if (isSpell && spell) {
+  if (spell.type === 'sorcery' || damageType === 'magic') {
+    base = 18 + (stats.intelligence || 10) * 2.4;
+  } else {
+    base = 18 + (stats.faith || 10) * 2.3;
+  }
+  base = base * (spell.multiplier || multiplier);
+} else {
+  base = (20 + (stats.strength || 10) * 1.5 + (stats.dexterity || 10) * 0.8) * multiplier;
+}
+
     const variance = 0.85 + Math.random() * 0.3;
     let damage = Math.floor(base * multiplier * variance);
 
@@ -307,8 +346,34 @@ if (interaction.customId.startsWith('pvp_action:')) {
     const resist = (enemyStats.strength || 10) * 0.5;
     damage = Math.max(1, Math.floor(damage * (1 - Math.min(40, resist) / 100)));
 
+    function pvpWeaponClassBonus(me, damage, isSpell = false) {
+  const char = characters[me.build.character];
+  const preferred = char?.preferredWeaponClass;
+  if (!preferred) return damage;
+
+  const eq = me.equipped || me.build?.equipped || {};
+
+  if (preferred === 'staff' && eq.staff?.weaponClass === 'staff') {
+    return Math.floor(damage * 1.1);
+  }
+  if (preferred === 'seal' && eq.seal?.weaponClass === 'seal') {
+    return Math.floor(damage * 1.1);
+  }
+  if (!isSpell && eq.weapon?.weaponClass === preferred) {
+    return Math.floor(damage * 1.1);
+  }
+  return damage;
+}
+
+// dùng:
+damage = pvpWeaponClassBonus(me, damage, isSpell);
+
     enemy.hp -= damage;
-    log.push(`⚔️ **${me.username}** dùng **${actionName}** gây **${damage}** sát thương!`);
+    log.push(
+  isSpell
+    ? `✨ **${me.username}** dùng **${actionName}** gây **${damage}** sát thương!`
+    : `⚔️ **${me.username}** dùng **${actionName}** gây **${damage}** sát thương!`
+);
 
     if (enemy.hp <= 0) {
       enemy.hp = 0;
@@ -1000,13 +1065,15 @@ return interaction.editReply({
         log.push(`💨 Bạn đã **né** đòn của ${enemy.name}!`);
       } else {
         let enemyDmg = calculateEnemyDamage(enemy, run);
+        const armorDef = run.defense || {};
         const playerResist = {
-          physical: (run.stats?.strength || 10) * 0.8,
-          fire: (run.stats?.vigor || 10) * 0.6,
-          magic: (run.stats?.intelligence || 10) * 0.7,
-          lightning: (run.stats?.dexterity || 10) * 0.7,
-          holy: (run.stats?.faith || 10) * 0.7
+          physical: (run.stats?.strength || 10) * 0.8 + (armorDef.physical || 0),
+          fire: (run.stats?.vigor || 10) * 0.6 + (armorDef.fire || 0),
+          magic: (run.stats?.intelligence || 10) * 0.7 + (armorDef.magic || 0),
+          lightning: (run.stats?.dexterity || 10) * 0.7 + (armorDef.lightning || 0),
+          holy: (run.stats?.faith || 10) * 0.7 + (armorDef.holy || 0)
         };
+
         enemyDmg = applyResistance(enemyDmg, enemy.damageType, playerResist);
         run.hp -= enemyDmg;
         log.push(`💥 ${enemy.name} gây **${enemyDmg}** sát thương ${enemy.damageType}!`);
@@ -1091,7 +1158,7 @@ return interaction.editReply({
 }
 
     const lootTier = isMiniboss ? 2 : 1;
-    const rewards = generateRewards(lootTier);
+    const rewards = generateRewards(lootTier, run.character);
     run.tempRewards = rewards;
 
     if (combat.minibossType === 'miniboss2' || run.currentPhase === 'miniboss2') {
@@ -1276,7 +1343,7 @@ return interaction.editReply({
 }
 
     const lootTier = isMiniboss ? 2 : 1;
-    const rewards = generateRewards(lootTier);
+    const rewards = generateRewards(lootTier, run.character);
     run.tempRewards = rewards;
     if (run.currentPhase === 'miniboss2') run.currentPhase = 'rest';
     else run.currentPhase = 'exploring';

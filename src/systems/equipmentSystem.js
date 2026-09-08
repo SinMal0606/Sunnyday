@@ -9,6 +9,9 @@ function getRandomSpell(type) {
 function createEquipmentInstance(templateId, category) {
   const template = equipments[category]?.[templateId];
   if (!template) return null;
+  if (template.weaponClass) instance.weaponClass = template.weaponClass;
+  if (template.defense) instance.defense = template.defense;
+if (template.bonus) instance.bonus = { ...template.bonus };
 
   const instance = {
     id: template.id,
@@ -41,9 +44,18 @@ function createEquipmentInstance(templateId, category) {
   return instance;
 }
 
-function generateRandomEquipment(lootTier = 1) {
+function generateRandomEquipment(lootTier = 1, preferredClass = null) {
   const categories = ['weapons', 'armors', 'staffs', 'seals'];
-  const category = categories[Math.floor(Math.random() * categories.length)];
+
+  // 55% cơ hội ưu tiên category theo class nhân vật
+  let category;
+  if (preferredClass && Math.random() < 0.55) {
+    if (preferredClass === 'staff') category = 'staffs';
+    else if (preferredClass === 'seal') category = 'seals';
+    else category = 'weapons'; // sword / greatweapon
+  } else {
+    category = categories[Math.floor(Math.random() * categories.length)];
+  }
 
   let pool = Object.values(equipments[category] || {});
 
@@ -52,9 +64,16 @@ function generateRandomEquipment(lootTier = 1) {
   } else {
     pool = pool.filter(e => e.rarity !== 'Common');
   }
-
   if (pool.length === 0) {
     pool = Object.values(equipments[category] || {});
+  }
+
+  // Trong weapons: ưu tiên đúng weaponClass
+  if (category === 'weapons' && preferredClass && ['sword', 'greatweapon'].includes(preferredClass)) {
+    const preferredPool = pool.filter(e => e.weaponClass === preferredClass);
+    if (preferredPool.length > 0 && Math.random() < 0.65) {
+      pool = preferredPool;
+    }
   }
 
   if (pool.length === 0) return null;

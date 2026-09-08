@@ -6,6 +6,17 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelect
 function createInventoryEmbed(run) {
   const inv = run.inventory || {};
   const eq = inv.equipped || {};
+  const armor = eq.armor;
+let armorInfo = '*Trống*';
+if (armor) {
+  const def = armor.defense
+    ? `DEF Phys ${armor.defense.physical || 0} | Mag ${armor.defense.magic || 0}`
+    : '';
+  const bon = armor.bonus
+    ? Object.entries(armor.bonus).map(([k, v]) => `${v > 0 ? '+' : ''}${v} ${k}`).join(', ')
+    : '';
+  armorInfo = `**${armor.name}**\n${def}\n${bon}`;
+}
 
   const weaponText = eq.weapon ? `**${eq.weapon.name}**` : '*Trống*';
   const armorText = eq.armor ? `**${eq.armor.name}**` : '*Trống*';
@@ -85,48 +96,63 @@ function createInventoryComponents(run) {
  * Áp dụng chỉ số từ trang bị đang mặc (cơ bản)
  */
 function applyEquipmentStats(run) {
-  // Reset về stats gốc của level trước khi cộng trang bị
   const { calculateStats, calculateMaxHp, calculateMaxMana } = require('./characterSystem');
   const baseStats = calculateStats(run.character, run.level);
 
-  // Cộng thêm từ trang bị (tạm thời hardcode bonus đơn giản)
   const eq = run.inventory?.equipped || {};
-  let bonus = { vigor: 0, strength: 0, dexterity: 0, intelligence: 0, faith: 0, agility: 0, mind: 0 };
+  const bonus = {
+    vigor: 0, strength: 0, dexterity: 0,
+    intelligence: 0, faith: 0, agility: 0, mind: 0
+  };
 
-  if (eq.weapon) {
-    if (eq.weapon.name.includes('Strength') || eq.weapon.name.includes('Greatsword') || eq.weapon.name.includes('Hammer')) {
-      bonus.strength += 3;
-    } else if (eq.weapon.name.includes('Dexterity') || eq.weapon.name.includes('Katana')) {
-      bonus.dexterity += 3;
-    } else {
-      bonus.strength += 2;
+  // ---- Armor: bonus chỉ số ----
+  if (eq.armor?.bonus) {
+    for (const [key, val] of Object.entries(eq.armor.bonus)) {
+      if (bonus[key] !== undefined) bonus[key] += val;
     }
   }
 
-  if (eq.armor) {
-    bonus.vigor += 2;
-    bonus.strength += 1;
+  // ---- Weapon / Staff / Seal: bonus nhẹ (nếu có) ----
+  if (eq.weapon?.bonus) {
+    for (const [key, val] of Object.entries(eq.weapon.bonus)) {
+      if (bonus[key] !== undefined) bonus[key] += val;
+    }
+  }
+  if (eq.staff?.bonus) {
+    for (const [key, val] of Object.entries(eq.staff.bonus)) {
+      if (bonus[key] !== undefined) bonus[key] += val;
+    }
+  }
+  if (eq.seal?.bonus) {
+    for (const [key, val] of Object.entries(eq.seal.bonus)) {
+      if (bonus[key] !== undefined) bonus[key] += val;
+    }
   }
 
-  if (eq.staff) {
-    bonus.intelligence += 4;
-    bonus.mind += 2;
+  // Fallback cũ nếu weapon không có bonus field
+  if (eq.weapon && !eq.weapon.bonus) {
+    bonus.strength += 2;
+  }
+  if (eq.staff && !eq.staff.bonus) {
+    bonus.intelligence += 3;
+    bonus.mind += 1;
+  }
+  if (eq.seal && !eq.seal.bonus) {
+    bonus.faith += 3;
+    bonus.mind += 1;
   }
 
-  if (eq.seal) {
-    bonus.faith += 4;
-    bonus.mind += 2;
-  }
-
-  // Áp dụng
   for (const key of Object.keys(baseStats)) {
     run.stats[key] = baseStats[key] + (bonus[key] || 0);
   }
 
+  // Lưu defense từ giáp để combat dùng
+  run.defense = eq.armor?.defense
+    ? { ...eq.armor.defense }
+    : { physical: 0, fire: 0, magic: 0, lightning: 0, holy: 0 };
+
   run.maxHp = calculateMaxHp(run.stats.vigor);
   run.maxMana = calculateMaxMana(run.stats.mind);
-
-  // Không cho HP/Mana vượt quá max mới
   run.hp = Math.min(run.hp, run.maxHp);
   run.mana = Math.min(run.mana, run.maxMana);
 
