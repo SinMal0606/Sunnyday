@@ -824,6 +824,86 @@ damage = pvpWeaponClassBonus(me, damage, isSpell);
         return;
       }
 
+      if (action === 'select_nightlord') {
+  console.log('[NL] start', value);
+  try {
+    const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+    console.log('[NL] run:', !!run, 'phase:', run?.currentPhase);
+
+    if (!run) {
+      return interaction.followUp({
+        content: 'Không tìm thấy run active. Dùng `/start` lại.',
+        flags: MessageFlags.Ephemeral
+      }).catch(() => {});
+    }
+
+    // Cho phép tiếp tục nếu đang kẹt phase
+    if (run.currentPhase !== 'select_nightlord') {
+      console.log('[NL] phase sai, ép về select_nightlord');
+      // Nếu muốn cứng: báo lỗi
+      // return interaction.followUp({ content: `Phase hiện tại: ${run.currentPhase}`, flags: MessageFlags.Ephemeral });
+    }
+
+    const nightlord = nightlords[value];
+    console.log('[NL] nightlord:', nightlord?.name);
+
+    if (!nightlord) {
+      return interaction.followUp({
+        content: 'Nightlord không tồn tại.',
+        flags: MessageFlags.Ephemeral
+      }).catch(() => {});
+    }
+
+    run.nightlord = value;
+    run.currentPhase = 'select_character';
+    await run.save();
+    console.log('[NL] saved');
+
+    const validCharacters = ['wylder', 'recluse', 'ironfist', 'seer'];
+    const characterButtons = validCharacters.map(charId => {
+      const char = characters[charId];
+      if (!char) {
+        console.log('[NL] missing char', charId);
+        return null;
+      }
+      return new ButtonBuilder()
+        .setCustomId(`select_character:${charId}`)
+        .setLabel(char.name)
+        .setStyle(ButtonStyle.Primary);
+    }).filter(Boolean);
+
+    if (characterButtons.length === 0) {
+      return interaction.editReply({
+        content: 'Lỗi: không load được nhân vật (characters.js).',
+        embeds: [],
+        components: []
+      });
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('Chọn Nhân vật')
+      .setDescription(`Bạn đã chọn **${nightlord.name}**.\nHãy chọn nhân vật.`)
+      .setColor(0x5865F2)
+      .addFields(
+        { name: 'Nightlord', value: nightlord.name, inline: true },
+        { name: 'Độ khó', value: String(nightlord.difficulty || '?'), inline: true }
+      );
+
+    await interaction.editReply({
+      embeds: [embed],
+      components: [new ActionRowBuilder().addComponents(characterButtons)]
+    });
+    console.log('[NL] editReply ok');
+    return;
+  } catch (err) {
+    console.error('[NL] ERROR:', err);
+    await interaction.followUp({
+      content: 'Lỗi khi chọn Nightlord: ' + err.message,
+      flags: MessageFlags.Ephemeral
+    }).catch(() => {});
+  }
+}
+
       // ---------- Rest Area ----------
       if (action === 'rest_heal') {
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
