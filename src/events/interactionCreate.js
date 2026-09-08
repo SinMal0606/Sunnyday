@@ -218,195 +218,145 @@ console.log('[BUTTON]', action, value);
         return;
       }
 
-      // Đặt gần đầu phần Button, sau khi đã deferUpdate
+      // ===== PvP Action (phải parse riêng vì có nhiều dấu :) =====
 if (interaction.customId.startsWith('pvp_action:')) {
-  const parts = interaction.customId.split(':');
-  const matchId = parts[1];
-  const pvpAction = parts[2];
-
-  const {
-    getMatch,
-    createPvPEmbed,
-    createPvPButtons,
-    getPlayer,
-    endMatch
-  } = require('../systems/pvpSystem');
-
-  const match = getMatch(matchId);
-  if (!match || match.status !== 'active') {
-    return interaction.editReply({ content: 'Trận đã kết thúc.', embeds: [], components: [] }).catch(() => {});
-  }
-
-  const userId = interaction.user.id;
-
-  // Không đúng lượt
-  if (match.currentTurn !== userId) {
-    return interaction.followUp({
-      content: 'Chưa đến lượt bạn!',
-      flags: MessageFlags.Ephemeral
-    });
-  }
-
-  const pair = getPlayer(match, userId);
-  if (!pair) return;
-
-  const { me, enemy } = pair;
-  // ... tính damage, trừ HP, log như cũ ...
-
-  if (enemy.hp <= 0) {
-    match.status = 'ended';
-    match.winnerId = me.id;
-    endMatch(matchId);
-    // cộng Murk...
-  } else {
-    match.currentTurn = enemy.id;
-    match.turn += 1;
-  }
-
-  match.log = log.slice(-12);
-
-  const turnName = match.currentTurn === match.player1.id
-    ? match.player1.username
-    : match.player2.username;
-
-  const payload = {
-    content: match.status !== 'active'
-      ? `🏆 **${me.username}** thắng PvP!`
-      : `⚔️ **PvP:** ${match.player1.username} vs ${match.player2.username}\n▶️ Lượt của **${turnName}**`,
-    embeds: [createPvPEmbed(match)],
-    components: match.status === 'active' ? createPvPButtons(match) : []
-  };
-
-  // 1) Edit message trận công khai
   try {
-    if (match.channelId && match.messageId) {
-      const channel = await interaction.client.channels.fetch(match.channelId);
-      const battleMsg = await channel.messages.fetch(match.messageId);
-      await battleMsg.edit(payload);
+    const parts = interaction.customId.split(':');
+    // pvp_action : matchId : attack|skill|ultimate
+    const matchId = parts[1];
+    const pvpAction = parts[2]; // attack | skill | ultimate
+
+    console.log('[PvP]', matchId, pvpAction);
+
+    const {
+      getMatch,
+      createPvPEmbed,
+      createPvPButtons,
+      getPlayer,
+      endMatch
+    } = require('../systems/pvpSystem');
+    const characters = require('../data/characters');
+
+    const match = getMatch(matchId);
+    if (!match || match.status !== 'active') {
+      return interaction.followUp({
+        content: 'Trận đã kết thúc hoặc không tồn tại.',
+        flags: MessageFlags.Ephemeral
+      }).catch(() => {});
     }
+
+    const userId = interaction.user.id;
+
+    if (match.currentTurn !== userId) {
+      return interaction.followUp({
+        content: 'Chưa đến lượt bạn!',
+        flags: MessageFlags.Ephemeral
+      }).catch(() => {});
+    }
+
+    const pair = getPlayer(match, userId);
+    if (!pair) return;
+
+    const { me, enemy } = pair;
+
+    // ★ Khai báo log ở đây — tránh "log is not defined"
+    let log = match.log || [];
+
+    let manaCost = 0;
+    let actionName = 'Tấn công';
+    let multiplier = 1.0;
+
+    if (pvpAction === 'skill') {
+      manaCost = characters[me.build.character]?.skill?.manaCost || 16;
+      actionName = 'Skill';
+      multiplier = characters[me.build.character]?.skill?.multiplier || 1.6;
+    } else if (pvpAction === 'ultimate') {
+      manaCost = characters[me.build.character]?.ultimate?.manaCost || 40;
+      actionName = 'Ultimate';
+      multiplier = characters[me.build.character]?.ultimate?.multiplier || 2.5;
+    }
+
+    if (me.mana < manaCost) {
+      log.push(`❌ **${me.username}** không đủ Mana!`);
+      match.log = log.slice(-12);
+
+      // Update message public nếu có
+      if (match.channelId && match.messageId) {
+        try {
+          const channel = await interaction.client.channels.fetch(match.channelId);
+          const battleMsg = await channel.messages.fetch(match.messageId);
+          await battleMsg.edit({
+            embeds: [createPvPEmbed(match)],
+            components: createPvPButtons(match)
+          });
+        } catch (e) {
+          console.error('[PvP] edit failed:', e.message);
+        }
+      }
+      return;
+    }
+
+    me.mana -= manaCost;
+
+    const stats = me.stats || {};
+    const base = 20 + (stats.strength || 10) * 1.5 + (stats.dexterity || 10) * 0.8;
+    const variance = 0.85 + Math.random() * 0.3;
+    let damage = Math.floor(base * multiplier * variance);
+
+    const enemyStats = enemy.stats || {};
+    const resist = (enemyStats.strength || 10) * 0.5;
+    damage = Math.max(1, Math.floor(damage * (1 - Math.min(40, resist) / 100)));
+
+    enemy.hp -= damage;
+    log.push(`⚔️ **${me.username}** dùng **${actionName}** gây **${damage}** sát thương!`);
+
+    if (enemy.hp <= 0) {
+      enemy.hp = 0;
+      match.status = 'ended';
+      match.winnerId = me.id;
+      endMatch(matchId);
+      log.push(`🏆 **${me.username}** chiến thắng!`);
+
+      await User.findOneAndUpdate({ discordId: me.id }, { $inc: { murk: 25 } });
+      await User.findOneAndUpdate({ discordId: enemy.id }, { $inc: { murk: 8 } });
+    } else {
+      match.currentTurn = enemy.id;
+      match.turn += 1;
+    }
+
+    match.log = log.slice(-12);
+
+    const turnName =
+      match.currentTurn === match.player1.id
+        ? match.player1.username
+        : match.player2.username;
+
+    const payload = {
+      content:
+        match.status !== 'active'
+          ? `🏆 **${me.username}** thắng PvP!`
+          : `⚔️ **PvP:** ${match.player1.username} vs ${match.player2.username}\n▶️ Lượt của **${turnName}**`,
+      embeds: [createPvPEmbed(match)],
+      components: match.status === 'active' ? createPvPButtons(match) : []
+    };
+
+    // Edit message trận (public)
+    if (match.channelId && match.messageId) {
+      try {
+        const channel = await interaction.client.channels.fetch(match.channelId);
+        const battleMsg = await channel.messages.fetch(match.messageId);
+        await battleMsg.edit(payload);
+      } catch (e) {
+        console.error('[PvP] edit battle message failed:', e.message);
+      }
+    }
+
+    return;
   } catch (err) {
-    console.error('[PvP] edit battle message failed:', err.message);
+    console.error('[PvP] action error:', err);
+    return;
   }
-
-  // 2) Acknowledge nút vừa bấm (deferUpdate đã gọi ở đầu button handler)
-  // Không cần editReply ephemeral trừ khi muốn báo thêm
-  return;
 }
-
-      if (action === 'inv_unequip') {
-        const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-        if (!run) return;
-
-        run.inventory.equipped = { weapon: null, armor: null, staff: null, seal: null };
-        applyEquipmentStats(run);
-        run.markModified('inventory');
-        await run.save();
-
-        const embed = createInventoryEmbed(run);
-        const components = createInventoryComponents(run);
-        await interaction.editReply({ content: 'Đã tháo toàn bộ trang bị.', embeds: [embed], components });
-        return;
-      }
-
-      if (action === 'inv_close') {
-        await interaction.editReply({ content: 'Đã đóng túi đồ.', embeds: [], components: [] });
-        return;
-      }
-
-      // ---------- Relic ----------
-      if (action === 'relic_equip') {
-        const user = await User.findOne({ discordId: interaction.user.id });
-        if (!user) return;
-
-        const unequipped = user.relics.filter(r => !r.equipped);
-        if (unequipped.length === 0) {
-          return interaction.followUp({ content: 'Không còn Relic để trang bị.', flags: MessageFlags.Ephemeral });
-        }
-
-        const equippedCount = user.relics.filter(r => r.equipped).length;
-        if (equippedCount >= 3) {
-          return interaction.followUp({ content: 'Bạn đã trang bị tối đa 3 Relic.', flags: MessageFlags.Ephemeral });
-        }
-
-        const options = unequipped.slice(0, 25).map((r, index) => ({
-          label: r.name.slice(0, 100),
-          description: r.rarity,
-          value: String(index)
-        }));
-
-        const select = new StringSelectMenuBuilder()
-          .setCustomId('relic_select_equip')
-          .setPlaceholder('Chọn Relic để trang bị')
-          .addOptions(options);
-
-        await interaction.editReply({
-          content: 'Chọn Relic bạn muốn trang bị:',
-          embeds: [],
-          components: [new ActionRowBuilder().addComponents(select)]
-        });
-        return;
-      }
-
-      if (action === 'relic_unequip') {
-        const user = await User.findOne({ discordId: interaction.user.id });
-        if (!user) return;
-
-        user.relics.forEach(r => (r.equipped = false));
-        await user.save();
-        await interaction.editReply({ content: 'Đã tháo toàn bộ Relic.', embeds: [], components: [] });
-        return;
-      }
-
-      // ---------- Chọn Nightlord ----------
-      if (action === 'select_nightlord') {
-        const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-        if (!run || run.currentPhase !== 'select_nightlord') {
-          return interaction.followUp({ content: 'Run không hợp lệ hoặc đã chọn Nightlord rồi.', flags: MessageFlags.Ephemeral });
-        }
-
-        const nightlord = nightlords[value];
-        if (!nightlord) {
-          return interaction.followUp({ content: 'Nightlord không tồn tại.', flags: MessageFlags.Ephemeral });
-        }
-
-        run.nightlord = value;
-        run.currentPhase = 'select_character';
-        await run.save();
-
-        let user = await User.findOne({ discordId: interaction.user.id });
-        if (!user) {
-          return interaction.editReply({ content: 'Không tìm thấy user.', embeds: [], components: [] });
-        }
-
-        const validCharacters = ['wylder', 'recluse', 'ironfist', 'seer'];
-        user.unlockedCharacters = validCharacters;
-        await user.save();
-
-        const characterButtons = validCharacters.map(charId => {
-          const char = characters[charId];
-          return new ButtonBuilder()
-            .setCustomId(`select_character:${charId}`)
-            .setLabel(char.name)
-            .setStyle(ButtonStyle.Primary);
-        });
-
-        const rows = [];
-        for (let i = 0; i < characterButtons.length; i += 5) {
-          rows.push(new ActionRowBuilder().addComponents(characterButtons.slice(i, i + 5)));
-        }
-
-        const embed = new EmbedBuilder()
-          .setTitle('Chọn Nhân vật')
-          .setDescription(`Bạn đã chọn **${nightlord.name}**.\nHãy chọn nhân vật để bắt đầu run.`)
-          .setColor(0x5865F2)
-          .addFields(
-            { name: 'Nightlord', value: nightlord.name, inline: true },
-            { name: 'Độ khó', value: nightlord.difficulty, inline: true }
-          );
-
-        await interaction.editReply({ embeds: [embed], components: rows });
-        return;
-      }
 
       // ---------- Chọn Character ----------
       if (action === 'select_character') {
