@@ -26,6 +26,8 @@ function createMatch(player1, player2) {
 
   const match = {
     id: matchId,
+    channelId: null,
+    messageId: null,
     player1: {
       id: player1.id,
       username: player1.username,
@@ -141,27 +143,23 @@ function createPvPEmbed(match) {
     .setFooter({ text: `Match: ${match.id}` });
 }
 
-function createPvPButtons(match, userId) {
-  const isMyTurn = match.currentTurn === userId;
-  const disabled = !isMyTurn || match.status !== 'active';
+function createPvPButtons(match) {
+  if (match.status !== 'active') return [];
 
   return [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`pvp_action:${match.id}:attack`)
         .setLabel('Tấn công')
-        .setStyle(ButtonStyle.Danger)
-        .setDisabled(disabled),
+        .setStyle(ButtonStyle.Danger),
       new ButtonBuilder()
         .setCustomId(`pvp_action:${match.id}:skill`)
         .setLabel('Skill')
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(disabled),
+        .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId(`pvp_action:${match.id}:ultimate`)
         .setLabel('Ultimate')
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(disabled)
     )
   ];
 }

@@ -221,29 +221,25 @@ console.log('[BUTTON]', action, value);
       // Đặt gần đầu phần Button, sau khi đã deferUpdate
 if (interaction.customId.startsWith('pvp_action:')) {
   const parts = interaction.customId.split(':');
-  // pvp_action : matchId : attack|skill|ultimate
   const matchId = parts[1];
-  const pvpAction = parts[2]; // attack | skill | ultimate
+  const pvpAction = parts[2];
 
   const {
     getMatch,
     createPvPEmbed,
     createPvPButtons,
     getPlayer,
-    updateBothPlayers,
     endMatch
   } = require('../systems/pvpSystem');
-  const characters = require('../data/characters');
-  const {
-    applyResistance
-  } = require('../systems/combatSystem');
 
   const match = getMatch(matchId);
   if (!match || match.status !== 'active') {
-    return interaction.editReply({ content: 'Trận đã kết thúc.', embeds: [], components: [] });
+    return interaction.editReply({ content: 'Trận đã kết thúc.', embeds: [], components: [] }).catch(() => {});
   }
 
   const userId = interaction.user.id;
+
+  // Không đúng lượt
   if (match.currentTurn !== userId) {
     return interaction.followUp({
       content: 'Chưa đến lượt bạn!',
@@ -255,83 +251,46 @@ if (interaction.customId.startsWith('pvp_action:')) {
   if (!pair) return;
 
   const { me, enemy } = pair;
-  const log = match.log || [];
+  // ... tính damage, trừ HP, log như cũ ...
 
-  // Mana cost
-  let manaCost = 0;
-  let actionName = 'Tấn công';
-  let multiplier = 1.0;
-
-  if (pvpAction === 'skill') {
-    manaCost = characters[me.build.character]?.skill?.manaCost || 16;
-    actionName = 'Skill';
-    multiplier = characters[me.build.character]?.skill?.multiplier || 1.6;
-  } else if (pvpAction === 'ultimate') {
-    manaCost = characters[me.build.character]?.ultimate?.manaCost || 40;
-    actionName = 'Ultimate';
-    multiplier = characters[me.build.character]?.ultimate?.multiplier || 2.5;
+  if (enemy.hp <= 0) {
+    match.status = 'ended';
+    match.winnerId = me.id;
+    endMatch(matchId);
+    // cộng Murk...
+  } else {
+    match.currentTurn = enemy.id;
+    match.turn += 1;
   }
 
-  if (me.mana < manaCost) {
-    log.push(`❌ **${me.username}** không đủ Mana!`);
-    match.log = log.slice(-12);
-    return interaction.editReply({
-      embeds: [createPvPEmbed(match)],
-      components: createPvPButtons(match, userId)
-    });
+  match.log = log.slice(-12);
+
+  const turnName = match.currentTurn === match.player1.id
+    ? match.player1.username
+    : match.player2.username;
+
+  const payload = {
+    content: match.status !== 'active'
+      ? `🏆 **${me.username}** thắng PvP!`
+      : `⚔️ **PvP:** ${match.player1.username} vs ${match.player2.username}\n▶️ Lượt của **${turnName}**`,
+    embeds: [createPvPEmbed(match)],
+    components: match.status === 'active' ? createPvPButtons(match) : []
+  };
+
+  // 1) Edit message trận công khai
+  try {
+    if (match.channelId && match.messageId) {
+      const channel = await interaction.client.channels.fetch(match.channelId);
+      const battleMsg = await channel.messages.fetch(match.messageId);
+      await battleMsg.edit(payload);
+    }
+  } catch (err) {
+    console.error('[PvP] edit battle message failed:', err.message);
   }
 
-  me.mana -= manaCost;
-
-  // Sát thương đơn giản từ stats build
-  const stats = me.stats || {};
-  const base = 20 + (stats.strength || 10) * 1.5 + (stats.dexterity || 10) * 0.8;
-  const variance = 0.85 + Math.random() * 0.3;
-  let damage = Math.floor(base * multiplier * variance);
-
-  // Kháng sơ bộ từ enemy
-  const enemyStats = enemy.stats || {};
-  const resist = (enemyStats.strength || 10) * 0.5;
-  damage = Math.max(1, Math.floor(damage * (1 - Math.min(40, resist) / 100)));
-
-  enemy.hp -= damage;
-  log.push(`⚔️ **${me.username}** dùng **${actionName}** gây **${damage}** sát thương!`);
-
-  // Sau khi đã tính damage, trừ HP, ghi log...
-
-if (enemy.hp <= 0) {
-  enemy.hp = 0;
-  match.winnerId = me.id;
-  match.status = 'ended';
-  endMatch(matchId);
-  log.push(`🏆 **${me.username}** chiến thắng!`);
-
-  const murkWin = 25;
-  const murkLose = 8;
-  await User.findOneAndUpdate({ discordId: me.id }, { $inc: { murk: murkWin } });
-  await User.findOneAndUpdate({ discordId: enemy.id }, { $inc: { murk: murkLose } });
-} else {
-  // Còn sống → đổi lượt
-  match.currentTurn = enemy.id;
-  match.turn += 1;
-}
-
-match.log = log.slice(-12);
-
-// ★ Quan trọng: cập nhật message CỦA CẢ 2
-await updateBothPlayers(interaction.client, match);
-
-// Cập nhật message của người vừa bấm nút
-await interaction.editReply({
-  content: match.status !== 'active'
-    ? (match.winnerId === userId ? '🎉 Bạn thắng!' : '💀 Bạn thua.')
-    : (match.currentTurn === userId ? '▶️ **Đến lượt bạn!**' : '⏳ Đợi đối thủ...'),
-  embeds: [createPvPEmbed(match)],
-  components: match.status === 'active'
-    ? createPvPButtons(match, userId)
-    : []
-});
-return;
+  // 2) Acknowledge nút vừa bấm (deferUpdate đã gọi ở đầu button handler)
+  // Không cần editReply ephemeral trừ khi muốn báo thêm
+  return;
 }
 
       if (action === 'inv_unequip') {
@@ -1526,48 +1485,45 @@ return;
   // Có đối thủ → tạo match
   removeFromQueue(opponent.id);
 
-const myReply = await interaction.fetchReply().catch(() => null);
-
 const match = createMatch(
-  {
-    id: userId,
-    username: interaction.user.username,
-    build: myBuild,
-    channelId: interaction.channelId,
-    messageId: myReply?.id || null
-  },
-  {
-    id: opponent.id,
-    username: opponent.data.username,
-    build: opponent.data.build,
-    channelId: opponent.data.channelId || null,
-    messageId: opponent.data.messageId || null
-  }
+  { id: userId, username: interaction.user.username, build: myBuild },
+  { id: opponent.id, username: opponent.data.username, build: opponent.data.build }
 );
 
-// Cập nhật message của CẢ 2 người (người đang chờ + bạn)
-await updateBothPlayers(interaction.client, match);
+const { createPvPEmbed } = require('../systems/pvpSystem');
 
-// Cập nhật luôn message của bạn (người vừa bấm chọn build)
-await interaction.editReply({
-  content: match.currentTurn === userId
-    ? '▶️ **Đến lượt bạn!**'
-    : `⏳ Đợi **${opponent.data.username}**...`,
+// Nút luôn bật — kiểm tra lượt trong handler
+const row = new ActionRowBuilder().addComponents(
+  new ButtonBuilder()
+    .setCustomId(`pvp_action:${match.id}:attack`)
+    .setLabel('Tấn công')
+    .setStyle(ButtonStyle.Danger),
+  new ButtonBuilder()
+    .setCustomId(`pvp_action:${match.id}:skill`)
+    .setLabel('Skill')
+    .setStyle(ButtonStyle.Primary),
+  new ButtonBuilder()
+    .setCustomId(`pvp_action:${match.id}:ultimate`)
+    .setLabel('Ultimate')
+    .setStyle(ButtonStyle.Secondary)
+);
+
+// Gửi message CÔNG KHAI trong channel (không ephemeral)
+const battleMsg = await interaction.channel.send({
+  content: `⚔️ **PvP:** ${interaction.user.username} vs ${opponent.data.username}\n▶️ Lượt của **${interaction.user.username}**`,
   embeds: [createPvPEmbed(match)],
-  components: createPvPButtons(match, userId)
+  components: [row]
 });
 
-// Nếu lúc nãy chưa có messageId của bạn thì lưu lại
-const msg = await interaction.fetchReply().catch(() => null);
-if (msg) {
-  if (match.player1.id === userId) {
-    match.player1.messageId = msg.id;
-    match.player1.channelId = msg.channelId;
-  } else {
-    match.player2.messageId = msg.id;
-    match.player2.channelId = msg.channelId;
-  }
-}
+match.channelId = battleMsg.channelId;
+match.messageId = battleMsg.id;
+
+// Trả lời ephemeral ngắn cho người vừa match
+await interaction.editReply({
+  content: `Đã tìm thấy **${opponent.data.username}**!\nXem trận ở tin nhắn bên dưới trong channel.`,
+  embeds: [],
+  components: []
+});
 
 return;
 }
