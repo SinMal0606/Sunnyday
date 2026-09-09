@@ -33,9 +33,9 @@ function generateLocationChoices(count = 3, excludeIds = []) {
 }
 
 function getSpecialEvent(locationsVisited) {
-  if (locationsVisited === 15) return 'miniboss1';
-  if (locationsVisited === 30) return 'miniboss2';
-  if (locationsVisited > 30) return 'rest';
+  if (locationsVisited === 10) return 'miniboss1';
+  if (locationsVisited === 20) return 'miniboss2';
+  if (locationsVisited > 20) return 'rest';
   return null;
 }
 

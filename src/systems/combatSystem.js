@@ -217,9 +217,13 @@ function processStatusEffects(target) {
 function createCombatState(run, locationId) {
   const enemyPool = ['soldier', 'fire_mage', 'swamp_creature', 'lightning_knight', 'church_zealot', 'mage'];
   const randomId = enemyPool[Math.floor(Math.random() * enemyPool.length)];
-  const template = enemies[randomId];
+  const raw = enemies[randomId];
 
-  
+  // locationsVisited đã +1 ở select_location trước khi gọi createCombatState
+  // Nếu bạn +1 trước khi tạo combat → dùng run.locationsVisited
+  // Nếu +1 sau → dùng run.locationsVisited + 1
+  const floor = run.locationsVisited || 1;
+  const template = scaleEnemyTemplate(raw, floor);
 
   const enemy = {
     id: template.id,
@@ -231,21 +235,21 @@ function createCombatState(run, locationId) {
     damageType: template.damageType,
     resistances: template.resistances || {},
     canApply: template.canApply || null,
-    runeReward: template.runeReward || [30, 50],
-    status: {},
-    skillCooldown: 0,
-ultimateCharge: 0,
-playerBuffs: {},
-enemyDebuffs: {},
+    runeReward: template.runeReward,
+    status: {}
   };
 
   return {
     enemy,
     turn: 1,
     playerStatus: {},
-    log: [`Trận đấu với ${enemy.emoji} **${enemy.name}** bắt đầu!`],
+    log: [`Trận đấu với ${enemy.emoji} **${enemy.name}** (Tầng ${floor})`],
     isAuto: false,
-    locationId
+    locationId,
+    skillCooldown: 0,
+    ultimateCharge: 0,
+    playerBuffs: {},
+    enemyDebuffs: {}
   };
 }
 
@@ -436,6 +440,43 @@ function runAutoTurn(run) {
 
   return 'combat_attack';
 }
+
+/**
+ * floor = số location đã đi (locationsVisited) trước hoặc sau khi vào combat
+ * Dùng run.locationsVisited tại thời điểm tạo combat
+ */
+function getFloorScaling(floor) {
+  const f = Math.max(0, floor || 0);
+
+  // Máu / damage quái tăng theo tầng
+  // Tầng 0–3: ~1.0x | tầng 10: ~1.55x | tầng 20: ~2.2x
+  const hpMult = 1 + f * 0.055;
+  const dmgMult = 1 + f * 0.045;
+
+  // Rune: tầng thấp vẫn khá, tầng cao nhiều hơn
+  // baseMult tầng 1 ≈ 1.35, tầng 10 ≈ 2.0, tầng 20 ≈ 2.9
+  const runeMult = 1.25 + f * 0.125;
+
+  return { hpMult, dmgMult, runeMult };
+}
+
+function scaleEnemyTemplate(template, floor) {
+  const { hpMult, dmgMult, runeMult } = getFloorScaling(floor);
+  const hp = Math.floor(template.hp * hpMult);
+  const damage = Math.floor(template.damage * dmgMult);
+  const r0 = Math.floor((template.runeReward?.[0] || 30) * runeMult);
+  const r1 = Math.floor((template.runeReward?.[1] || 50) * runeMult);
+
+  return {
+    ...template,
+    hp,
+    damage,
+    runeReward: [r0, r1]
+  };
+}
+
+module.exports.getFloorScaling = getFloorScaling;
+module.exports.scaleEnemyTemplate = scaleEnemyTemplate;
 
 const User = require('../models/User');
 

@@ -12,6 +12,7 @@ const charactersLegacy = require('../data/characters');
 const Run = require('../models/Run');
 const User = require('../models/User');
 
+
 const {
   applyCharacterToRun,
   calculateStats,
@@ -627,7 +628,10 @@ module.exports = {
         }
 
         if (special === 'miniboss1' || special === 'miniboss2') {
-          const bossTemplate = getMiniboss(special);
+          const { scaleEnemyTemplate } = require('../systems/combatSystem');
+          const bossRaw = getMiniboss(special);
+          const floor = run.locationsVisited; // 10 hoặc 20
+          const bossTemplate = scaleEnemyTemplate(bossRaw, floor);
           const combat = {
             enemy: {
               id: bossTemplate.id,
