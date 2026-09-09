@@ -57,9 +57,9 @@
     "undici-types": "^8.3.0",
     "webidl-conversions": "^7.0.0",
     "whatwg-url": "^14.2.0",
-    "ws": "^8.21.3"
+    "ws": "^8.21.3",
+    "xlsx": "^0.18.5"
   },
-  "devDependencies": {},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/SinMal0606/Sunnyday.git"
@@ -73,8 +73,8 @@
   },
   "homepage": "https://github.com/SinMal0606/Sunnyday#readme",
   "scripts": {
-  "start": "node src/index.js",
-  "dev": "nodemon src/index.js",
-  "deploy": "node src/utils/deploy-commands.js"
-}
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "deploy": "node src/utils/deploy-commands.js"
+  }
 }

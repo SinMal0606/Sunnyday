@@ -1,5 +1,6 @@
 const enemies = require('../data/enemies');
 const characters = require('../data/characters');
+const { getCharacter, getCharacterData } = require('../characters');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 // ====================== CÔNG THỨC SÁT THƯƠNG ======================
@@ -77,6 +78,75 @@ function calculatePlayerDamage(run, actionType = 'attack') {
   };
 }
 
+function ensureCombatMeta(combat) {
+  if (combat.skillCooldown == null) combat.skillCooldown = 0;
+  if (combat.ultimateCharge == null) combat.ultimateCharge = 0;
+  if (!combat.playerBuffs) combat.playerBuffs = {};
+  if (!combat.enemyDebuffs) combat.enemyDebuffs = {};
+  if (!combat.playerStatus) combat.playerStatus = {};
+  return combat;
+}
+
+function canUseSkill(combat) {
+  return (combat.skillCooldown || 0) <= 0;
+}
+
+function canUseUltimate(combat, characterId) {
+  const data = getCharacterData(characterId);
+  const need = data?.ultimate?.chargeRequired || 100;
+  return (combat.ultimateCharge || 0) >= need;
+}
+
+function addUltimateCharge(combat, characterId, amount) {
+  const data = getCharacterData(characterId);
+  const max = data?.ultimate?.chargeRequired || 100;
+  combat.ultimateCharge = Math.min(max, (combat.ultimateCharge || 0) + (amount || 0));
+}
+
+function applySkillEffects(combat, effects = {}) {
+  if (!effects) return;
+
+  if (effects.selfBuff) {
+    combat.playerBuffs = combat.playerBuffs || {};
+    for (const [key, val] of Object.entries(effects.selfBuff)) {
+      if (val && typeof val === 'object' && val.value != null) {
+        combat.playerBuffs[key] = {
+          value: val.value,
+          turns: val.turns || 3
+        };
+      }
+    }
+  }
+
+  if (effects.enemyDebuff) {
+    combat.enemyDebuffs = combat.enemyDebuffs || {};
+    Object.assign(combat.enemyDebuffs, effects.enemyDebuff);
+  }
+
+  if (effects.cleansePlayer) {
+    combat.playerStatus = {};
+  }
+}
+
+function tickCombatMeta(combat) {
+  if (combat.skillCooldown > 0) combat.skillCooldown -= 1;
+
+  if (combat.playerBuffs) {
+    for (const key of Object.keys(combat.playerBuffs)) {
+      combat.playerBuffs[key].turns -= 1;
+      if (combat.playerBuffs[key].turns <= 0) delete combat.playerBuffs[key];
+    }
+  }
+
+  if (combat.enemyDebuffs) {
+    for (const key of Object.keys(combat.enemyDebuffs)) {
+      if (combat.enemyDebuffs[key].turns != null) {
+        combat.enemyDebuffs[key].turns -= 1;
+        if (combat.enemyDebuffs[key].turns <= 0) delete combat.enemyDebuffs[key];
+      }
+    }
+  }
+}
 function calculateEnemyDamage(enemy, run) {
   const base = enemy.damage || 25;
   const variance = 0.9 + Math.random() * 0.25;
@@ -149,6 +219,8 @@ function createCombatState(run, locationId) {
   const randomId = enemyPool[Math.floor(Math.random() * enemyPool.length)];
   const template = enemies[randomId];
 
+  
+
   const enemy = {
     id: template.id,
     name: template.name,
@@ -160,7 +232,11 @@ function createCombatState(run, locationId) {
     resistances: template.resistances || {},
     canApply: template.canApply || null,
     runeReward: template.runeReward || [30, 50],
-    status: {}
+    status: {},
+    skillCooldown: 0,
+ultimateCharge: 0,
+playerBuffs: {},
+enemyDebuffs: {},
   };
 
   return {
@@ -197,6 +273,11 @@ function createCombatEmbed(run, combat) {
         inline: true
       },
       {
+        name: 'Skill / Ult',
+        value: `CD: **${combat.skillCooldown || 0}** | Charge: **${combat.ultimateCharge || 0}/${need}**`,
+        inline: false
+      },
+      {
         name: `${enemy.name}`,
         value: `HP: ${enemyHpBar} **${Math.max(0, enemy.currentHp)}/${enemy.maxHp}**`,
         inline: true
@@ -217,11 +298,31 @@ function createCombatButtons(run, isAuto = false) {
     ];
   }
 
+  const combat = run.combat || {};
+  const data = getCharacterData(run.character);
+  const cd = combat.skillCooldown || 0;
+  const charge = combat.ultimateCharge || 0;
+  const need = data?.ultimate?.chargeRequired || 100;
+
   const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('combat_attack').setLabel('Tấn công').setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId('combat_skill').setLabel('Skill').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('combat_ultimate').setLabel('Ultimate').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('combat_auto').setLabel('Auto').setStyle(ButtonStyle.Success)
+    new ButtonBuilder()
+      .setCustomId('combat_attack')
+      .setLabel('Tấn công')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId('combat_skill')
+      .setLabel(cd > 0 ? `Skill (${cd})` : (data?.skill?.name || 'Skill'))
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(cd > 0),
+    new ButtonBuilder()
+      .setCustomId('combat_ultimate')
+      .setLabel(`Ult ${charge}/${need}`)
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(charge < need),
+    new ButtonBuilder()
+      .setCustomId('combat_auto')
+      .setLabel('Auto')
+      .setStyle(ButtonStyle.Success)
   );
 
   const rows = [row1];
@@ -408,3 +509,9 @@ module.exports = {
   createCombatButtons,       
   enemies
 };
+module.exports.ensureCombatMeta = ensureCombatMeta;
+module.exports.canUseSkill = canUseSkill;
+module.exports.canUseUltimate = canUseUltimate;
+module.exports.addUltimateCharge = addUltimateCharge;
+module.exports.applySkillEffects = applySkillEffects;
+module.exports.tickCombatMeta = tickCombatMeta;
