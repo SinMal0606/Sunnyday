@@ -262,27 +262,42 @@ function createCombatEmbed(run, combat) {
   const playerHpBar = createBar(run.hp, run.maxHp);
   const enemyHpBar = createBar(enemy.currentHp, enemy.maxHp);
 
+  // Khai báo need / charge / cd
+  let cd = combat.skillCooldown || 0;
+  let charge = combat.ultimateCharge || 0;
+  let need = 100;
+
+  try {
+    const { getCharacterData } = require('../characters');
+    const data = getCharacterData(run.character);
+    if (data?.ultimate?.chargeRequired) {
+      need = data.ultimate.chargeRequired;
+    }
+  } catch (_) {
+    // characters module chưa có thì giữ need = 100
+  }
+
   return new EmbedBuilder()
     .setTitle(`⚔️ Combat - ${enemy.emoji} ${enemy.name}`)
     .setColor(0xE74C3C)
-    .setDescription(combat.log.slice(-8).join('\n') || 'Trận đấu bắt đầu!')
+    .setDescription((combat.log || []).slice(-8).join('\n') || 'Trận đấu bắt đầu!')
     .addFields(
       {
-        name: `${(run.character || 'player').toUpperCase()} (Bạn)`,
+        name: `${String(run.character || 'player').toUpperCase()} (Bạn)`,
         value: `HP: ${playerHpBar} **${run.hp}/${run.maxHp}**\nMana: **${run.mana}/${run.maxMana}**`,
         inline: true
-      },
-      {
-        name: 'Skill / Ult',
-        value: `CD: **${combat.skillCooldown || 0}** | Charge: **${combat.ultimateCharge || 0}/${need}**`,
-        inline: false
       },
       {
         name: `${enemy.name}`,
         value: `HP: ${enemyHpBar} **${Math.max(0, enemy.currentHp)}/${enemy.maxHp}**`,
         inline: true
       },
-      { name: 'Turn', value: `${combat.turn}`, inline: true }
+      { name: 'Turn', value: `${combat.turn || 1}`, inline: true },
+      {
+        name: 'Skill / Ultimate',
+        value: `CD: **${cd}** | Charge: **${charge}/${need}**`,
+        inline: false
+      }
     );
 }
 
