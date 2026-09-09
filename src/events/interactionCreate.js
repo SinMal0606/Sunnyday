@@ -557,129 +557,163 @@ module.exports = {
 
       // ---------- Location ----------
       if (action === 'select_location') {
-        const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-        if (!run || run.currentPhase !== 'exploring') {
-          return interaction.followUp({ content: 'Không ở giai khám phá.', flags: MessageFlags.Ephemeral }).catch(() => {});
-        }
+  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+  if (!run) {
+    return interaction.followUp({ content: 'Không có run active.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  }
 
-        const selectedId = value;
-        const selected = locations[selectedId];
-        if (!selected) {
-          return interaction.followUp({ content: 'Địa điểm không hợp lệ.', flags: MessageFlags.Ephemeral }).catch(() => {});
-        }
+  // Cho phép exploring HOẶC đang kẹt nhầm phase nhưng chưa có combat
+  if (run.currentPhase !== 'exploring') {
+    if (run.combat) {
+      return interaction.editReply({
+        content: 'Bạn đang trong combat. Dùng /continue nếu cần.',
+        embeds: [createCombatEmbed(run, run.combat)],
+        components: createCombatButtons(run, false)
+      });
+    }
+    // Reset nhẹ nếu phase lạ mà không combat
+    if (['miniboss1', 'miniboss2'].includes(run.currentPhase) && !run.combat) {
+      run.currentPhase = 'exploring';
+    } else {
+      return interaction.followUp({
+        content: `Không ở giai khám phá (phase: ${run.currentPhase}). Dùng /continue hoặc /abandon.`,
+        flags: MessageFlags.Ephemeral
+      }).catch(() => {});
+    }
+  }
 
-        const result = await handleLocation(run, selectedId);
-        run.locationsVisited += 1;
-        run.locationHistory = run.locationHistory || [];
-        run.locationHistory.push(selectedId);
+  const selectedId = value;
+  const selected = locations[selectedId];
+  if (!selected) {
+    console.error('[LOC] missing location:', selectedId, 'keys:', Object.keys(locations || {}));
+    return interaction.followUp({
+      content: `Địa điểm không hợp lệ: \`${selectedId}\``,
+      flags: MessageFlags.Ephemeral
+    }).catch(() => {});
+  }
 
-        if (result.updates) {
-          if (result.updates.hp !== undefined) run.hp = result.updates.hp;
-          if (result.updates.mana !== undefined) run.mana = result.updates.mana;
-          if (result.updates.runes !== undefined) run.runes = result.updates.runes;
-        }
-        if (result.isGrace) {
-          run.hp = run.maxHp;
-          run.mana = run.maxMana;
-        }
+  try {
+    const result = await handleLocation(run, selectedId);
 
-        const special = getSpecialEvent(run.locationsVisited);
-        if (special === 'miniboss1') run.currentPhase = 'miniboss1';
-        else if (special === 'miniboss2') run.currentPhase = 'miniboss2';
+    run.locationsVisited = (run.locationsVisited || 0) + 1;
+    run.locationHistory = run.locationHistory || [];
+    run.locationHistory.push(selectedId);
+
+    if (result.updates) {
+      if (result.updates.hp !== undefined) run.hp = result.updates.hp;
+      if (result.updates.mana !== undefined) run.mana = result.updates.mana;
+      if (result.updates.runes !== undefined) run.runes = result.updates.runes;
+    }
+    if (result.isGrace) {
+      run.hp = run.maxHp;
+      run.mana = run.maxMana;
+    }
+
+    const special = getSpecialEvent(run.locationsVisited);
+
+    // ----- Grace / Shop: save + trả UI, phase vẫn exploring -----
+    if (result.isGrace) {
+      await run.save();
+      // ... embed grace như cũ
+      return;
+    }
+    if (result.isShop) {
+      await run.save();
+      return interaction.editReply({
+        embeds: [createShopEmbed(run)],
+        components: createShopButtons()
+      });
+    }
+
+    // ----- Miniboss: tạo combat XONG mới gán phase -----
+    if (special === 'miniboss1' || special === 'miniboss2') {
+      const { scaleEnemyTemplate } = require('../systems/combatSystem');
+      const bossRaw = getMiniboss(special);
+      if (!bossRaw) {
+        console.error('[LOC] missing miniboss', special);
         await run.save();
-
-        if (result.isGrace) {
-          const levelUpCost = result.levelUpCost || run.level * 100;
-          const buttons = [];
-          if (run.runes >= levelUpCost) {
-            buttons.push(
-              new ButtonBuilder()
-                .setCustomId('grace_levelup')
-                .setLabel(`Lên cấp (${levelUpCost} Rune)`)
-                .setStyle(ButtonStyle.Success)
-            );
-          }
-          buttons.push(
-            new ButtonBuilder().setCustomId('grace_continue').setLabel('Tiếp tục khám phá').setStyle(ButtonStyle.Primary)
-          );
-
-          const embed = new EmbedBuilder()
-            .setTitle(`${selected.emoji} ${selected.name}`)
-            .setDescription(result.message)
-            .setColor(0xF1C40F)
-            .addFields(
-              { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
-              { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
-              { name: 'Level', value: `${run.level}`, inline: true },
-              { name: 'Runes', value: `${run.runes}`, inline: true }
-            );
-
-          return interaction.editReply({
-            embeds: [embed],
-            components: [new ActionRowBuilder().addComponents(buttons)]
-          });
-        }
-
-        if (result.isShop) {
-          return interaction.editReply({
-            embeds: [createShopEmbed(run)],
-            components: createShopButtons()
-          });
-        }
-
-        if (special === 'miniboss1' || special === 'miniboss2') {
-          const { scaleEnemyTemplate } = require('../systems/combatSystem');
-          const bossRaw = getMiniboss(special);
-          const floor = run.locationsVisited; // 10 hoặc 20
-          const bossTemplate = scaleEnemyTemplate(bossRaw, floor);
-          const combat = {
-            enemy: {
-              id: bossTemplate.id,
-              name: bossTemplate.name,
-              emoji: bossTemplate.emoji,
-              currentHp: bossTemplate.hp,
-              maxHp: bossTemplate.hp,
-              damage: bossTemplate.damage,
-              damageType: bossTemplate.damageType,
-              resistances: bossTemplate.resistances,
-              canApply: bossTemplate.canApply,
-              runeReward: bossTemplate.runeReward,
-              status: {}
-            },
-            turn: 1,
-            playerStatus: {},
-            log: [`⚠️ **MINIBOSS** – ${bossTemplate.emoji} **${bossTemplate.name}**`],
-            isAuto: false,
-            isMiniboss: true,
-            minibossType: special,
-            skillCooldown: 0,
-            ultimateCharge: 0,
-            playerBuffs: {},
-            enemyDebuffs: {}
-          };
-          run.combat = combat;
-          run.currentPhase = special;
-          run.markModified('combat');
-          await run.save();
-          return interaction.editReply({
-            content: `⚠️ **${bossTemplate.name}**!`,
-            embeds: [createCombatEmbed(run, combat)],
-            components: createCombatButtons(run, false)
-          });
-        }
-
-        if (result.isCombat || result.startCombat) {
-          const combat = createCombatState(run, selectedId);
-          ensureCombatMeta(combat);
-          run.combat = combat;
-          run.markModified('combat');
-          await run.save();
-          return interaction.editReply({
-            embeds: [createCombatEmbed(run, combat)],
-            components: createCombatButtons(run, false)
-          });
-        }
+        return interaction.followUp({ content: 'Lỗi data miniboss.', flags: MessageFlags.Ephemeral }).catch(() => {});
       }
+
+      const bossTemplate = scaleEnemyTemplate
+        ? scaleEnemyTemplate(bossRaw, run.locationsVisited)
+        : bossRaw;
+
+      const combat = {
+        enemy: {
+          id: bossTemplate.id,
+          name: bossTemplate.name,
+          emoji: bossTemplate.emoji,
+          currentHp: bossTemplate.hp,
+          maxHp: bossTemplate.hp,
+          damage: bossTemplate.damage,
+          damageType: bossTemplate.damageType,
+          resistances: bossTemplate.resistances || {},
+          canApply: bossTemplate.canApply || null,
+          runeReward: bossTemplate.runeReward || [100, 200],
+          status: {}
+        },
+        turn: 1,
+        playerStatus: {},
+        log: [`⚠️ **MINIBOSS** – ${bossTemplate.emoji} **${bossTemplate.name}**`],
+        isAuto: false,
+        isMiniboss: true,
+        minibossType: special,
+        skillCooldown: 0,
+        ultimateCharge: 0,
+        playerBuffs: {},
+        enemyDebuffs: {}
+      };
+
+      run.combat = combat;
+      run.currentPhase = special; // chỉ set khi combat đã tạo xong
+      run.markModified('combat');
+      await run.save();
+
+      return interaction.editReply({
+        content: `⚠️ **${bossTemplate.name}**!`,
+        embeds: [createCombatEmbed(run, combat)],
+        components: createCombatButtons(run, false)
+      });
+    }
+
+    // ----- Combat thường -----
+    if (result.isCombat || result.startCombat) {
+      const combat = createCombatState(run, selectedId);
+      ensureCombatMeta(combat);
+      run.combat = combat;
+      run.currentPhase = 'exploring';
+      run.markModified('combat');
+      await run.save();
+
+      return interaction.editReply({
+        embeds: [createCombatEmbed(run, combat)],
+        components: createCombatButtons(run, false)
+      });
+    }
+
+    await run.save();
+    return interaction.followUp({
+      content: 'Location không xử lý được (thiếu isCombat/isGrace/isShop).',
+      flags: MessageFlags.Ephemeral
+    }).catch(() => {});
+  } catch (err) {
+    console.error('[LOC] select_location error:', err);
+    // Không để phase treo nếu chưa có combat
+    try {
+      const again = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+      if (again && !again.combat && again.currentPhase !== 'exploring') {
+        again.currentPhase = 'exploring';
+        await again.save();
+      }
+    } catch (_) {}
+
+    return interaction.followUp({
+      content: `Lỗi location: ${err.message}`,
+      flags: MessageFlags.Ephemeral
+    }).catch(() => {});
+  }
+}
 
       // ---------- Shop ----------
       if (action === 'shop_buy') {
