@@ -11,7 +11,7 @@ const nightlords = require('../data/nightlords');
 const charactersLegacy = require('../data/characters');
 const Run = require('../models/Run');
 const User = require('../models/User');
-const special = getSpecialEvent(run.locationsVisited);
+
 
 
 const {
@@ -617,6 +617,8 @@ module.exports = {
         components: createShopButtons()
       });
     }
+
+    const special = getSpecialEvent(run.locationsVisited);
 
     // ----- Miniboss: tạo combat XONG mới gán phase -----
     if (special === 'miniboss1' || special === 'miniboss2') {
