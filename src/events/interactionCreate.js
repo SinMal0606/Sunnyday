@@ -11,6 +11,7 @@ const nightlords = require('../data/nightlords');
 const charactersLegacy = require('../data/characters');
 const Run = require('../models/Run');
 const User = require('../models/User');
+const special = getSpecialEvent(run.locationsVisited);
 
 
 const {
@@ -609,14 +610,6 @@ module.exports = {
       run.mana = run.maxMana;
     }
 
-    const special = getSpecialEvent(run.locationsVisited);
-
-    // ----- Grace / Shop: save + trả UI, phase vẫn exploring -----
-    if (result.isGrace) {
-      await run.save();
-      // ... embed grace như cũ
-      return;
-    }
     if (result.isShop) {
       await run.save();
       return interaction.editReply({
@@ -713,6 +706,12 @@ module.exports = {
       flags: MessageFlags.Ephemeral
     }).catch(() => {});
   }
+}
+
+    function getSpecialEvent(locationsVisited) {
+  if (locationsVisited === 10) return 'miniboss1';
+  if (locationsVisited === 20) return 'miniboss2';
+  return null;
 }
 
       // ---------- Shop ----------
