@@ -443,9 +443,19 @@ function createBar(current, max) {
 
 function createCombatEmbed(run, combat) {
   const enemy = combat.enemy;
+
+  // ★ Khai báo trước khi dùng
+  function createBar(cur, max) {
+    const percent = Math.max(0, Math.min(100, (cur / Math.max(1, max)) * 100));
+    const filled = Math.round(percent / 10);
+    return '█'.repeat(filled) + '░'.repeat(10 - filled);
+  }
+
+  const playerHpBar = createBar(run.hp, run.maxHp);
+  const enemyHpBar = createBar(enemy.currentHp, enemy.maxHp);
+
   const cd = combat.skillCooldown || 0;
   const charge = combat.ultimateCharge || 0;
-
   let need = 100;
   try {
     const { getCharacterData } = require('../characters');
@@ -453,28 +463,18 @@ function createCombatEmbed(run, combat) {
     if (data?.ultimate?.chargeRequired) need = data.ultimate.chargeRequired;
   } catch (_) {}
 
-  try {
-    const { getCharacterData } = require('../characters');
-    const data = getCharacterData(run.character);
-    if (data?.ultimate?.chargeRequired) {
-      need = data.ultimate.chargeRequired;
-    }
-  } catch (_) {
-    // characters module chưa có thì giữ need = 100
-  }
-
   return new EmbedBuilder()
-    .setTitle(`⚔️ Combat - ${enemy.emoji} ${enemy.name}`)
+    .setTitle(`⚔️ Combat - ${enemy.emoji || ''} ${enemy.name}`)
     .setColor(0xE74C3C)
     .setDescription((combat.log || []).slice(-8).join('\n') || 'Trận đấu bắt đầu!')
     .addFields(
       {
-        name: `${String(run.character || 'player').toUpperCase()} (Bạn)`,
+        name: 'Bạn',
         value: `HP: ${playerHpBar} **${run.hp}/${run.maxHp}**\nMana: **${run.mana}/${run.maxMana}**`,
         inline: true
       },
       {
-        name: `${enemy.name}`,
+        name: enemy.name,
         value: `HP: ${enemyHpBar} **${Math.max(0, enemy.currentHp)}/${enemy.maxHp}**`,
         inline: true
       },
