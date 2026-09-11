@@ -12,6 +12,8 @@ function createEquipmentInstance(templateId, category) {
   if (template.weaponClass) instance.weaponClass = template.weaponClass;
   if (template.defense) instance.defense = template.defense;
 if (template.bonus) instance.bonus = { ...template.bonus };
+if (template.status) instance.status = template.status;
+if (template.buildup != null) instance.buildup = Number(template.buildup);
 
   const instance = {
     id: template.id,

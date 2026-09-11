@@ -16,22 +16,22 @@ function loadEquipments() {
     if (!row.id) continue;
     const id = String(row.id).trim();
     weapons[id] = {
-      id,
-      name: row.name,
-      type: 'weapon',
-      rarity: row.rarity || 'Common',
-      damageType: row.damageType || 'physical',
-      baseDamage: num(row.baseDamage, 20),
-      scaling: {
-        strength: num(row.scale_strength),
-        dexterity: num(row.scale_dexterity),
-        intelligence: num(row.scale_intelligence),
-        faith: num(row.scale_faith)
-      },
-      weaponClass: row.weaponClass || null,
-      status: row.status || null,
-      description: row.description || ''
-    };
+  id,
+  name: row.name,
+  type: 'weapon',
+  rarity: row.rarity || 'Common',
+  damageType: row.damageType || 'physical',
+  baseDamage: num(row.baseDamage, 20),
+  scaling: {
+    strength: num(row.scale_strength),
+    dexterity: num(row.scale_dexterity),
+    faith: num(row.scale_faith)
+  },
+  weaponClass: row.weaponClass || null,
+  status: row.status ? String(row.status).trim() : null,
+  buildup: row.buildup != null && row.buildup !== '' ? num(row.buildup, 40) : null,
+  description: row.description || ''
+};
   }
 
   const armors = {};

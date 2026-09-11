@@ -11,8 +11,7 @@ const nightlords = require('../data/nightlords');
 const charactersLegacy = require('../data/characters');
 const Run = require('../models/Run');
 const User = require('../models/User');
-
-
+const { applyStatusBuildup } = require('../systems/combatSystem');
 
 const {
   applyCharacterToRun,
@@ -53,15 +52,12 @@ const {
   canUseUltimate,
   addUltimateCharge,
   applySkillEffects,
-  tickCombatMeta
+  tickCombatMeta,
+  createStatusState,
+  scaleEnemyTemplate
 } = require('../systems/combatSystem');
 
-const {
-  createShopEmbed,
-  createShopButtons,
-  buyItem
-} = require('../systems/shopSystem');
-
+const { createShopEmbed, createShopButtons, buyItem } = require('../systems/shopSystem');
 const { getCharacter, getCharacterData } = require('../characters');
 
 const {
@@ -79,6 +75,17 @@ const {
 
 function getCharName(id) {
   return getCharacterData(id)?.name || charactersLegacy[id]?.name || id;
+}
+
+function buildPlayerResist(run) {
+  const armorDef = run.defense || {};
+  return {
+    physical: (run.stats?.strength || 10) * 0.8 + (armorDef.physical || 0),
+    fire: (run.stats?.vigor || 10) * 0.6 + (armorDef.fire || 0),
+    magic: (run.stats?.intelligence || 10) * 0.7 + (armorDef.magic || 0),
+    lightning: (run.stats?.dexterity || 10) * 0.7 + (armorDef.lightning || 0),
+    holy: (run.stats?.faith || 10) * 0.7 + (armorDef.holy || 0)
+  };
 }
 
 module.exports = {
@@ -105,9 +112,7 @@ module.exports = {
     // ====================== SELECT MENU ======================
     if (interaction.isStringSelectMenu()) {
       try {
-        if (!interaction.deferred && !interaction.replied) {
-          await interaction.deferUpdate();
-        }
+        if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
       } catch {
         return;
       }
@@ -145,7 +150,7 @@ module.exports = {
           const selectedIndex = parseInt(interaction.values[0], 10);
           const user = await User.findOne({ discordId: interaction.user.id });
           if (!user) return;
-          const unequipped = user.relics.filter(r => !r.equipped);
+          const unequipped = (user.relics || []).filter(r => !r.equipped);
           const selected = unequipped[selectedIndex];
           if (!selected) {
             return interaction.followUp({ content: 'Relic không tồn tại.', flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -175,13 +180,12 @@ module.exports = {
       return;
     }
 
-    // ----- PvP action (nhiều dấu :) -----
+    // ----- PvP (customId nhiều :) -----
     if (interaction.customId.startsWith('pvp_action:')) {
       try {
         const parts = interaction.customId.split(':');
         const matchId = parts[1];
         const pvpAction = parts[2];
-
         const match = getMatch(matchId);
         if (!match || match.status !== 'active') {
           return interaction.followUp({ content: 'Trận đã kết thúc.', flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -197,13 +201,14 @@ module.exports = {
         const { me, enemy } = pair;
         let log = match.log || [];
 
-        let manaCost = 0;
-        let actionName = 'Tấn công';
-        let multiplier = 1.0;
-        let isSpell = false;
-        let spell = null;
-
-        if (pvpAction === 'skill') {
+        if (pvpAction === 'attack') {
+          const stats = me.stats || {};
+          const damage = Math.floor(
+            (20 + (stats.strength || 10) * 1.5 + (stats.dexterity || 10) * 0.8) * (0.85 + Math.random() * 0.3)
+          );
+          enemy.hp -= damage;
+          log.push(`⚔️ **${me.username}** tấn công **${damage}**!`);
+        } else if (pvpAction === 'skill') {
           const mod = getCharacter(me.build.character);
           if (mod) {
             const result = mod.executeSkill({
@@ -211,15 +216,7 @@ module.exports = {
             });
             log.push(...(result.log || []));
             if (result.heal) me.hp = Math.min(me.maxHp, me.hp + result.heal);
-            if (result.damage) {
-              let dmg = result.damage;
-              enemy.hp -= dmg;
-              log.push(`→ **${dmg}** sát thương.`);
-            }
-          } else {
-            manaCost = 16;
-            actionName = 'Skill';
-            multiplier = 1.6;
+            if (result.damage) enemy.hp -= result.damage;
           }
         } else if (pvpAction === 'ultimate') {
           const mod = getCharacter(me.build.character);
@@ -230,46 +227,20 @@ module.exports = {
             log.push(...(result.log || []));
             if (result.heal) me.hp = Math.min(me.maxHp, me.hp + result.heal);
             if (result.damage) enemy.hp -= result.damage;
-          } else {
-            manaCost = 40;
-            actionName = 'Ultimate';
-            multiplier = 2.5;
           }
         } else if (pvpAction?.startsWith('spell_')) {
-          isSpell = true;
           const segs = pvpAction.split('_');
           const source = segs[1];
           const index = parseInt(segs[2], 10);
           const item = source === 'staff' ? me.equipped?.staff : me.equipped?.seal;
-          spell = item?.spells?.[index];
+          const spell = item?.spells?.[index];
           if (!spell) {
             return interaction.followUp({ content: 'Spell không tồn tại.', flags: MessageFlags.Ephemeral }).catch(() => {});
           }
-          actionName = spell.name;
-          manaCost = spell.manaCost || 12;
-        } else if (pvpAction !== 'skill' && pvpAction !== 'ultimate') {
-          // attack mặc định nếu không đi qua skill module damage
-          if (pvpAction === 'attack' || !['skill', 'ultimate'].includes(pvpAction)) {
-            const stats = me.stats || {};
-            const base = 20 + (stats.strength || 10) * 1.5 + (stats.dexterity || 10) * 0.8;
-            const damage = Math.floor(base * multiplier * (0.85 + Math.random() * 0.3));
-            enemy.hp -= damage;
-            log.push(`⚔️ **${me.username}** dùng **${actionName}** gây **${damage}** sát thương!`);
-          }
-        }
-
-        // Xử lý attack/skill fallback khi không có mod result
-        if (pvpAction === 'attack') {
-          const stats = me.stats || {};
-          let base = 20 + (stats.strength || 10) * 1.5 + (stats.dexterity || 10) * 0.8;
-          const damage = Math.floor(base * (0.85 + Math.random() * 0.3));
-          enemy.hp -= damage;
-          log.push(`⚔️ **${me.username}** tấn công gây **${damage}** sát thương!`);
-        } else if (isSpell && spell) {
-          if (me.mana < manaCost) {
+          if (me.mana < (spell.manaCost || 12)) {
             log.push(`❌ **${me.username}** không đủ Mana!`);
           } else {
-            me.mana -= manaCost;
+            me.mana -= spell.manaCost || 12;
             const stats = me.stats || {};
             let base =
               spell.type === 'sorcery'
@@ -278,7 +249,7 @@ module.exports = {
             base *= spell.multiplier || 1.6;
             const damage = Math.floor(base * (0.85 + Math.random() * 0.3));
             enemy.hp -= damage;
-            log.push(`✨ **${me.username}** dùng **${actionName}** gây **${damage}** sát thương!`);
+            log.push(`✨ **${me.username}** **${spell.name}** gây **${damage}**!`);
           }
         }
 
@@ -287,7 +258,7 @@ module.exports = {
           match.status = 'ended';
           match.winnerId = me.id;
           endMatch(matchId);
-          log.push(`🏆 **${me.username}** chiến thắng!`);
+          log.push(`🏆 **${me.username}** thắng!`);
           await User.findOneAndUpdate({ discordId: me.id }, { $inc: { murk: 25 } });
           await User.findOneAndUpdate({ discordId: enemy.id }, { $inc: { murk: 8 } });
         } else {
@@ -296,7 +267,6 @@ module.exports = {
         }
 
         match.log = log.slice(-12);
-
         const turnName =
           match.currentTurn === match.player1.id ? match.player1.username : match.player2.username;
 
@@ -304,7 +274,7 @@ module.exports = {
           content:
             match.status !== 'active'
               ? `🏆 **${me.username}** thắng PvP!`
-              : `⚔️ **PvP:** ${match.player1.username} vs ${match.player2.username}\n▶️ Lượt của **${turnName}**`,
+              : `⚔️ **PvP:** ${match.player1.username} vs ${match.player2.username}\n▶️ Lượt **${turnName}**`,
           embeds: [createPvPEmbed(match)],
           components: match.status === 'active' ? createPvPButtons(match) : []
         };
@@ -319,7 +289,7 @@ module.exports = {
           }
         }
       } catch (err) {
-        console.error('[PvP] error:', err);
+        console.error('[PvP]', err);
       }
       return;
     }
@@ -328,6 +298,173 @@ module.exports = {
     console.log('[BUTTON]', action, value);
 
     try {
+      // ---------- helpers combat ----------
+      async function finishCombatWin(run, combat, enemy) {
+        const isNightlord = combat.isNightlord;
+        const isMiniboss = combat.isMiniboss;
+        const gainedRunes =
+          Math.floor(Math.random() * ((enemy.runeReward?.[1] || 50) - (enemy.runeReward?.[0] || 30) + 1)) +
+          (enemy.runeReward?.[0] || 30);
+
+        run.runes = (run.runes || 0) + gainedRunes;
+        run.combat = null;
+
+        if (isNightlord) {
+          run.status = 'completed';
+          run.currentPhase = 'ended';
+          run.pendingBuild = true;
+          const murkGained = 80 + (run.locationsVisited || 0) * 2 + (run.level || 1) * 3;
+          await User.findOneAndUpdate(
+            { discordId: interaction.user.id },
+            { $inc: { murk: murkGained, wins: 1, totalRuns: 1 }, lastActive: new Date() }
+          );
+          await run.save();
+          return interaction.editReply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle('🎉 CHIẾN THẮNG NIGHTLORD!')
+                .setDescription(`Đánh bại **${enemy.name}**!\n+${gainedRunes} Rune | +${murkGained} Murk\nLưu build?`)
+                .setColor(0xF1C40F)
+            ],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('save_build').setLabel('Lưu Build').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('skip_save_build').setLabel('Bỏ qua').setStyle(ButtonStyle.Secondary)
+              )
+            ]
+          });
+        }
+
+        const rewards = generateRewards(isMiniboss ? 2 : 1, run.character);
+        run.tempRewards = rewards;
+        if (combat.minibossType === 'miniboss2') run.currentPhase = 'rest';
+        else run.currentPhase = 'exploring';
+        run.markModified('tempRewards');
+        await run.save();
+
+        const { embed, row } = createRewardEmbed(run, `${enemy.emoji || ''} ${enemy.name}`, rewards, gainedRunes);
+        return interaction.editReply({
+          content: `🎉 Thắng${isMiniboss ? ' MINIBOSS' : ''}! +${gainedRunes} Rune`,
+          embeds: [embed],
+          components: [row]
+        });
+      }
+
+      function enemyHitPlayer(run, combat, enemy, log) {
+  let playerDied = false;
+  let enemyDied = false;
+
+  if (tryDodge(run)) {
+    log.push(`💨 Bạn né đòn của ${enemy.name}!`);
+    return { playerDied, enemyDied };
+  }
+
+  let enemyDmg = calculateEnemyDamage(enemy, run);
+  const playerResist = buildPlayerResist(run);
+  const resBonus = combat.playerBuffs?.resistanceBonus?.value || 0;
+  if (resBonus) {
+    for (const k of Object.keys(playerResist)) playerResist[k] += resBonus;
+  }
+
+  enemyDmg = applyResistance(
+    enemyDmg,
+    enemy.damageType,
+    playerResist,
+    combat._playerResistPenalty || 0
+  );
+
+  const reflect = combat.playerBuffs?.reflect?.value || 0;
+  if (reflect > 0) {
+    const refDmg = Math.floor(enemyDmg * reflect);
+    enemy.currentHp -= refDmg;
+    log.push(`🛡️ Phản **${refDmg}**!`);
+    if (enemy.currentHp <= 0) {
+      enemy.currentHp = 0;
+      enemyDied = true;
+    }
+  }
+
+  if (!enemyDied) {
+    run.hp -= enemyDmg;
+    log.push(`💥 ${enemy.name} gây **${enemyDmg}** sát thương!`);
+
+    // ★ Build-up status từ quái
+    if (enemy.canApply && combat.playerStatusState) {
+      const r = applyStatusBuildup(
+        combat.playerStatusState,
+        enemy.canApply,
+        enemy.buildupAmount || 35,
+        { maxHp: run.maxHp, maxMana: run.maxMana }
+      );
+      if (r.messages.length) log.push(...r.messages);
+      if (r.instantDamage > 0) run.hp -= r.instantDamage;
+      if (r.manaLoss > 0) run.mana = Math.max(0, run.mana - r.manaLoss);
+    }
+
+    if (run.hp <= 0) {
+      run.hp = 0;
+      playerDied = true;
+    }
+  }
+
+  return { playerDied, enemyDied };
+}
+
+      /** Đầu lượt: tick status. return true nếu đã xử lý xong (sleep/death) */
+      async function tickPlayerStatusOrStop(run, combat, enemy, log) {
+        const tick = processStatusEffects(combat.playerStatusState);
+        if (tick.messages?.length) {
+          log.push(...tick.messages.map(m => `Bạn: ${m}`));
+        }
+        combat._playerResistPenalty = tick.resistPenalty || 0;
+
+        if (tick.damage > 0) {
+          run.hp -= tick.damage;
+          if (run.hp <= 0) {
+            run.hp = 0;
+            combat.log = log.slice(-15);
+            run.combat = combat;
+            run.markModified('combat');
+            await run.save();
+            const def = await handleRunDefeat(run, interaction, log);
+            await interaction.editReply({
+              embeds: [def.embed || def],
+              components: def.components || []
+            });
+            return true;
+          }
+        }
+
+        if (tick.skipTurn) {
+          log.push('Bạn đang ngủ – bỏ lượt!');
+          const c = enemyHitPlayer(run, combat, enemy, log);
+          combat.turn += 1;
+          tickCombatMeta(combat);
+          combat.log = log.slice(-15);
+          combat.enemy = enemy;
+          run.combat = combat;
+          run.markModified('combat');
+
+          if (c.playerDied || run.hp <= 0) {
+            run.hp = 0;
+            await run.save();
+            const def = await handleRunDefeat(run, interaction, log);
+            await interaction.editReply({
+              embeds: [def.embed || def],
+              components: def.components || []
+            });
+            return true;
+          }
+          await run.save();
+          await interaction.editReply({
+            embeds: [createCombatEmbed(run, combat)],
+            components: createCombatButtons(run, false)
+          });
+          return true;
+        }
+        return false;
+      }
+
       // ---------- Inventory ----------
       if (
         action === 'inv_equip_weapon' ||
@@ -337,7 +474,6 @@ module.exports = {
       ) {
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run) return;
-
         const typeMap = {
           inv_equip_weapon: 'weapons',
           inv_equip_armor: 'armors',
@@ -350,26 +486,21 @@ module.exports = {
           inv_equip_staff: 'staff',
           inv_equip_seal: 'seal'
         };
-        const listKey = typeMap[action];
-        const equipKey = equipKeyMap[action];
-        const items = run.inventory?.[listKey] || [];
+        const items = run.inventory?.[typeMap[action]] || [];
         if (!items.length) {
-          return interaction.followUp({ content: 'Không có món nào để mặc.', flags: MessageFlags.Ephemeral }).catch(() => {});
+          return interaction.followUp({ content: 'Không có món để mặc.', flags: MessageFlags.Ephemeral }).catch(() => {});
         }
-
         const options = items.slice(0, 25).map((item, index) => ({
           label: String(item.name).slice(0, 100),
           description: String(item.description || item.rarity || 'Trang bị').slice(0, 50),
           value: String(index)
         }));
-
         const select = new StringSelectMenuBuilder()
-          .setCustomId(`inv_select:${equipKey}`)
-          .setPlaceholder(`Chọn ${equipKey}`)
+          .setCustomId(`inv_select:${equipKeyMap[action]}`)
+          .setPlaceholder(`Chọn ${equipKeyMap[action]}`)
           .addOptions(options);
-
         await interaction.editReply({
-          content: `Chọn **${equipKey}**:`,
+          content: `Chọn **${equipKeyMap[action]}**:`,
           embeds: [],
           components: [new ActionRowBuilder().addComponents(select)]
         });
@@ -407,19 +538,22 @@ module.exports = {
         if ((user.relics || []).filter(r => r.equipped).length >= 3) {
           return interaction.followUp({ content: 'Tối đa 3 Relic.', flags: MessageFlags.Ephemeral }).catch(() => {});
         }
-        const options = unequipped.slice(0, 25).map((r, index) => ({
+        const options = unequipped.slice(0, 25).map((r, i) => ({
           label: String(r.name).slice(0, 100),
           description: String(r.rarity || ''),
-          value: String(index)
+          value: String(i)
         }));
-        const select = new StringSelectMenuBuilder()
-          .setCustomId('relic_select_equip')
-          .setPlaceholder('Chọn Relic')
-          .addOptions(options);
         await interaction.editReply({
           content: 'Chọn Relic:',
           embeds: [],
-          components: [new ActionRowBuilder().addComponents(select)]
+          components: [
+            new ActionRowBuilder().addComponents(
+              new StringSelectMenuBuilder()
+                .setCustomId('relic_select_equip')
+                .setPlaceholder('Relic')
+                .addOptions(options)
+            )
+          ]
         });
         return;
       }
@@ -443,7 +577,6 @@ module.exports = {
         if (!user) return;
         if (!user.savedBuilds) user.savedBuilds = [];
         if (user.savedBuilds.length >= 5) user.savedBuilds.shift();
-
         const buildName = `${getCharName(run.character)} Lv.${run.level}`;
         user.savedBuilds.push({
           name: buildName,
@@ -471,7 +604,10 @@ module.exports = {
       }
 
       if (action === 'skip_save_build') {
-        await Run.findOneAndUpdate({ userId: interaction.user.id, pendingBuild: true }, { pendingBuild: false });
+        await Run.findOneAndUpdate(
+          { userId: interaction.user.id, pendingBuild: true },
+          { pendingBuild: false }
+        );
         await interaction.editReply({ content: 'Đã bỏ qua lưu build.', embeds: [], components: [] });
         return;
       }
@@ -480,39 +616,31 @@ module.exports = {
       if (action === 'select_nightlord') {
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run) {
-          return interaction.followUp({ content: 'Không có run. Dùng /start.', flags: MessageFlags.Ephemeral }).catch(() => {});
+          return interaction.followUp({ content: 'Không có run. /start', flags: MessageFlags.Ephemeral }).catch(() => {});
         }
-
         const nightlord = nightlords[value];
         if (!nightlord) {
           return interaction.followUp({ content: 'Nightlord không tồn tại.', flags: MessageFlags.Ephemeral }).catch(() => {});
         }
-
         run.nightlord = value;
         run.currentPhase = 'select_character';
         await run.save();
 
-        const validCharacters = ['wylder', 'recluse', 'ironfist', 'seer'];
-        const characterButtons = validCharacters
-          .map(charId => {
-            const name = getCharName(charId);
-            return new ButtonBuilder()
+        const characterButtons = ['wylder', 'recluse', 'ironfist', 'seer'].map(
+          charId =>
+            new ButtonBuilder()
               .setCustomId(`select_character:${charId}`)
-              .setLabel(name)
-              .setStyle(ButtonStyle.Primary);
-          });
-
-        const embed = new EmbedBuilder()
-          .setTitle('Chọn Nhân vật')
-          .setDescription(`Bạn đã chọn **${nightlord.name}**.`)
-          .setColor(0x5865F2)
-          .addFields(
-            { name: 'Nightlord', value: nightlord.name, inline: true },
-            { name: 'Độ khó', value: String(nightlord.difficulty || '?'), inline: true }
-          );
+              .setLabel(getCharName(charId))
+              .setStyle(ButtonStyle.Primary)
+        );
 
         await interaction.editReply({
-          embeds: [embed],
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('Chọn Nhân vật')
+              .setDescription(`Nightlord: **${nightlord.name}**`)
+              .setColor(0x5865F2)
+          ],
           components: [new ActionRowBuilder().addComponents(characterButtons)]
         });
         return;
@@ -524,7 +652,6 @@ module.exports = {
         if (!run || run.currentPhase !== 'select_character') {
           return interaction.followUp({ content: 'Run không hợp lệ.', flags: MessageFlags.Ephemeral }).catch(() => {});
         }
-
         applyCharacterToRun(run, value);
         run.currentPhase = 'exploring';
         await run.save();
@@ -537,20 +664,18 @@ module.exports = {
             .setStyle(ButtonStyle.Secondary)
         );
 
-        const embed = new EmbedBuilder()
-          .setTitle('Bắt đầu khám phá')
-          .setDescription(
-            `**${getCharName(value)}** vs **${nightlords[run.nightlord]?.name || run.nightlord}**\nChọn địa điểm:`
-          )
-          .setColor(0x57F287)
-          .addFields(
-            { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
-            { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
-            { name: 'Level', value: `${run.level}`, inline: true }
-          );
-
         await interaction.editReply({
-          embeds: [embed],
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('Bắt đầu khám phá')
+              .setDescription(`**${getCharName(value)}** – chọn địa điểm:`)
+              .setColor(0x57F287)
+              .addFields(
+                { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
+                { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
+                { name: 'Level', value: `${run.level}`, inline: true }
+              )
+          ],
           components: [new ActionRowBuilder().addComponents(locationButtons)]
         });
         return;
@@ -558,163 +683,190 @@ module.exports = {
 
       // ---------- Location ----------
       if (action === 'select_location') {
-  const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-  if (!run) {
-    return interaction.followUp({ content: 'Không có run active.', flags: MessageFlags.Ephemeral }).catch(() => {});
-  }
+        const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+        if (!run) {
+          return interaction.followUp({ content: 'Không có run.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        }
 
-  // Cho phép exploring HOẶC đang kẹt nhầm phase nhưng chưa có combat
-  if (run.currentPhase !== 'exploring') {
-    if (run.combat) {
-      return interaction.editReply({
-        content: 'Bạn đang trong combat. Dùng /continue nếu cần.',
-        embeds: [createCombatEmbed(run, run.combat)],
-        components: createCombatButtons(run, false)
-      });
-    }
-    // Reset nhẹ nếu phase lạ mà không combat
-    if (['miniboss1', 'miniboss2'].includes(run.currentPhase) && !run.combat) {
-      run.currentPhase = 'exploring';
-    } else {
-      return interaction.followUp({
-        content: `Không ở giai khám phá (phase: ${run.currentPhase}). Dùng /continue hoặc /abandon.`,
-        flags: MessageFlags.Ephemeral
-      }).catch(() => {});
-    }
-  }
+        if (run.currentPhase !== 'exploring') {
+          if (run.combat) {
+            return interaction.editReply({
+              content: 'Đang combat – /continue nếu cần.',
+              embeds: [createCombatEmbed(run, run.combat)],
+              components: createCombatButtons(run, false)
+            });
+          }
+          if (['miniboss1', 'miniboss2'].includes(run.currentPhase) && !run.combat) {
+            run.currentPhase = 'exploring';
+          } else {
+            return interaction.followUp({
+              content: `Không ở khám phá (phase: ${run.currentPhase}). /continue hoặc /abandon`,
+              flags: MessageFlags.Ephemeral
+            }).catch(() => {});
+          }
+        }
 
-  const selectedId = value;
-  const selected = locations[selectedId];
-  if (!selected) {
-    console.error('[LOC] missing location:', selectedId, 'keys:', Object.keys(locations || {}));
-    return interaction.followUp({
-      content: `Địa điểm không hợp lệ: \`${selectedId}\``,
-      flags: MessageFlags.Ephemeral
-    }).catch(() => {});
-  }
+        const selectedId = value;
+        const selected = locations[selectedId];
+        if (!selected) {
+          return interaction.followUp({
+            content: `Địa điểm không hợp lệ: ${selectedId}`,
+            flags: MessageFlags.Ephemeral
+          }).catch(() => {});
+        }
 
-  try {
-    const result = await handleLocation(run, selectedId);
+        try {
+          const result = await handleLocation(run, selectedId);
+          run.locationsVisited = (run.locationsVisited || 0) + 1;
+          run.locationHistory = run.locationHistory || [];
+          run.locationHistory.push(selectedId);
 
-    run.locationsVisited = (run.locationsVisited || 0) + 1;
-    run.locationHistory = run.locationHistory || [];
-    run.locationHistory.push(selectedId);
+          if (result.updates) {
+            if (result.updates.hp !== undefined) run.hp = result.updates.hp;
+            if (result.updates.mana !== undefined) run.mana = result.updates.mana;
+            if (result.updates.runes !== undefined) run.runes = result.updates.runes;
+          }
+          if (result.isGrace) {
+            run.hp = run.maxHp;
+            run.mana = run.maxMana;
+          }
 
-    if (result.updates) {
-      if (result.updates.hp !== undefined) run.hp = result.updates.hp;
-      if (result.updates.mana !== undefined) run.mana = result.updates.mana;
-      if (result.updates.runes !== undefined) run.runes = result.updates.runes;
-    }
-    if (result.isGrace) {
-      run.hp = run.maxHp;
-      run.mana = run.maxMana;
-    }
+          const special = getSpecialEvent(run.locationsVisited);
+          console.log('[FLOOR]', run.locationsVisited, 'special=', special);
 
-    if (result.isShop) {
-      await run.save();
-      return interaction.editReply({
-        embeds: [createShopEmbed(run)],
-        components: createShopButtons()
-      });
-    }
+          // Grace
+          if (result.isGrace) {
+            await run.save();
+            const levelUpCost = result.levelUpCost || run.level * 100;
+            const buttons = [];
+            if (run.runes >= levelUpCost) {
+              buttons.push(
+                new ButtonBuilder()
+                  .setCustomId('grace_levelup')
+                  .setLabel(`Lên cấp (${levelUpCost} Rune)`)
+                  .setStyle(ButtonStyle.Success)
+              );
+            }
+            buttons.push(
+              new ButtonBuilder().setCustomId('grace_continue').setLabel('Tiếp tục khám phá').setStyle(ButtonStyle.Primary)
+            );
+            return interaction.editReply({
+              embeds: [
+                new EmbedBuilder()
+                  .setTitle(`${selected.emoji} ${selected.name}`)
+                  .setDescription(result.message || 'Site of Grace')
+                  .setColor(0xF1C40F)
+                  .addFields(
+                    { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
+                    { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
+                    { name: 'Level', value: `${run.level}`, inline: true },
+                    { name: 'Runes', value: `${run.runes}`, inline: true }
+                  )
+              ],
+              components: [new ActionRowBuilder().addComponents(buttons)]
+            });
+          }
 
-    const special = getSpecialEvent(run.locationsVisited);
+          // Shop
+          if (result.isShop) {
+            await run.save();
+            return interaction.editReply({
+              embeds: [createShopEmbed(run)],
+              components: createShopButtons()
+            });
+          }
 
-    // ----- Miniboss: tạo combat XONG mới gán phase -----
-    if (special === 'miniboss1' || special === 'miniboss2') {
-      const { scaleEnemyTemplate } = require('../systems/combatSystem');
-      const bossRaw = getMiniboss(special);
-      if (!bossRaw) {
-        console.error('[LOC] missing miniboss', special);
-        await run.save();
-        return interaction.followUp({ content: 'Lỗi data miniboss.', flags: MessageFlags.Ephemeral }).catch(() => {});
+          // ★ MINIBOSS TRƯỚC combat thường
+          if (special === 'miniboss1' || special === 'miniboss2') {
+            const bossRaw = getMiniboss(special);
+            if (!bossRaw) {
+              await run.save();
+              return interaction.followUp({ content: 'Lỗi data miniboss.', flags: MessageFlags.Ephemeral }).catch(() => {});
+            }
+            const bossTemplate =
+              typeof scaleEnemyTemplate === 'function'
+                ? scaleEnemyTemplate(bossRaw, run.locationsVisited)
+                : bossRaw;
+
+            const combat = {
+              enemy: {
+                id: bossTemplate.id,
+                name: bossTemplate.name,
+                emoji: bossTemplate.emoji,
+                currentHp: bossTemplate.hp,
+                maxHp: bossTemplate.hp,
+                damage: bossTemplate.damage,
+                damageType: bossTemplate.damageType,
+                resistances: bossTemplate.resistances || {},
+                canApply: bossTemplate.canApply || null,
+                buildupAmount: bossTemplate.buildupAmount || 45,
+                runeReward: bossTemplate.runeReward || [150, 250],
+                status: {},
+                statusState: createStatusState({}, false)
+              },
+              turn: 1,
+              log: [`⚠️ **MINIBOSS** – ${bossTemplate.emoji} **${bossTemplate.name}**`],
+              isAuto: false,
+              isMiniboss: true,
+              minibossType: special,
+              skillCooldown: 0,
+              ultimateCharge: 0,
+              playerBuffs: {},
+              enemyDebuffs: {},
+              playerStatusState: createStatusState(run.stats || {}, true),
+              playerStatus: {}
+            };
+
+            run.combat = combat;
+            run.currentPhase = special;
+            run.markModified('combat');
+            await run.save();
+
+            return interaction.editReply({
+              content: `⚠️ **${bossTemplate.name}**!`,
+              embeds: [createCombatEmbed(run, combat)],
+              components: createCombatButtons(run, false)
+            });
+          }
+
+          // Combat thường
+          if (result.isCombat || result.startCombat) {
+            const combat = createCombatState(run, selectedId);
+            ensureCombatMeta(combat, run);
+            if (!combat.playerStatusState) {
+              combat.playerStatusState = createStatusState(run.stats || {}, true);
+            }
+            if (combat.enemy && !combat.enemy.statusState) {
+              combat.enemy.statusState = createStatusState({}, false);
+            }
+            run.combat = combat;
+            run.currentPhase = 'exploring';
+            run.markModified('combat');
+            await run.save();
+
+            return interaction.editReply({
+              embeds: [createCombatEmbed(run, combat)],
+              components: createCombatButtons(run, false)
+            });
+          }
+
+          await run.save();
+        } catch (err) {
+          console.error('[LOC]', err);
+          try {
+            const again = await Run.findOne({ userId: interaction.user.id, status: 'active' });
+            if (again && !again.combat && again.currentPhase !== 'exploring') {
+              again.currentPhase = 'exploring';
+              await again.save();
+            }
+          } catch (_) {}
+          return interaction.followUp({
+            content: `Lỗi location: ${err.message}`,
+            flags: MessageFlags.Ephemeral
+          }).catch(() => {});
+        }
+        return;
       }
-
-      const bossTemplate = scaleEnemyTemplate
-        ? scaleEnemyTemplate(bossRaw, run.locationsVisited)
-        : bossRaw;
-
-      const combat = {
-        enemy: {
-          id: bossTemplate.id,
-          name: bossTemplate.name,
-          emoji: bossTemplate.emoji,
-          currentHp: bossTemplate.hp,
-          maxHp: bossTemplate.hp,
-          damage: bossTemplate.damage,
-          damageType: bossTemplate.damageType,
-          resistances: bossTemplate.resistances || {},
-          canApply: bossTemplate.canApply || null,
-          runeReward: bossTemplate.runeReward || [100, 200],
-          status: {}
-        },
-        turn: 1,
-        playerStatus: {},
-        log: [`⚠️ **MINIBOSS** – ${bossTemplate.emoji} **${bossTemplate.name}**`],
-        isAuto: false,
-        isMiniboss: true,
-        minibossType: special,
-        skillCooldown: 0,
-        ultimateCharge: 0,
-        playerBuffs: {},
-        enemyDebuffs: {}
-      };
-
-      run.combat = combat;
-      run.currentPhase = special; // chỉ set khi combat đã tạo xong
-      run.markModified('combat');
-      await run.save();
-
-      return interaction.editReply({
-        content: `⚠️ **${bossTemplate.name}**!`,
-        embeds: [createCombatEmbed(run, combat)],
-        components: createCombatButtons(run, false)
-      });
-    }
-
-    // ----- Combat thường -----
-    if (result.isCombat || result.startCombat) {
-      const combat = createCombatState(run, selectedId);
-      ensureCombatMeta(combat);
-      run.combat = combat;
-      run.currentPhase = 'exploring';
-      run.markModified('combat');
-      await run.save();
-
-      return interaction.editReply({
-        embeds: [createCombatEmbed(run, combat)],
-        components: createCombatButtons(run, false)
-      });
-    }
-
-    await run.save();
-    return interaction.followUp({
-      content: 'Location không xử lý được (thiếu isCombat/isGrace/isShop).',
-      flags: MessageFlags.Ephemeral
-    }).catch(() => {});
-  } catch (err) {
-    console.error('[LOC] select_location error:', err);
-    // Không để phase treo nếu chưa có combat
-    try {
-      const again = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-      if (again && !again.combat && again.currentPhase !== 'exploring') {
-        again.currentPhase = 'exploring';
-        await again.save();
-      }
-    } catch (_) {}
-
-    return interaction.followUp({
-      content: `Lỗi location: ${err.message}`,
-      flags: MessageFlags.Ephemeral
-    }).catch(() => {});
-  }
-}
-
-    function getSpecialEvent(locationsVisited) {
-  if (locationsVisited === 10) return 'miniboss1';
-  if (locationsVisited === 20) return 'miniboss2';
-  return null;
-}
 
       // ---------- Shop ----------
       if (action === 'shop_buy') {
@@ -741,94 +893,24 @@ module.exports = {
             .setLabel(`${loc.emoji} ${loc.name}`)
             .setStyle(ButtonStyle.Secondary)
         );
-        const embed = new EmbedBuilder()
-          .setTitle('Rời cửa hàng')
-          .setDescription('Chọn địa điểm tiếp theo:')
-          .setColor(0x3498DB)
-          .addFields(
-            { name: 'Location', value: `${run.locationsVisited}`, inline: true },
-            { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
-            { name: 'Runes', value: `${run.runes}`, inline: true }
-          );
         await interaction.editReply({
-          embeds: [embed],
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('Rời cửa hàng')
+              .setDescription('Chọn địa điểm:')
+              .setColor(0x3498DB)
+              .addFields(
+                { name: 'Location', value: `${run.locationsVisited}`, inline: true },
+                { name: 'Runes', value: `${run.runes}`, inline: true }
+              )
+          ],
           components: [new ActionRowBuilder().addComponents(nextButtons)]
         });
         return;
       }
 
-      // ---------- Grace map ----------
-      if (action === 'grace_levelup') {
-        const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-        if (!run) return;
-        const cost = run.level * 100;
-        if (run.runes < cost) {
-          return interaction.followUp({ content: 'Không đủ Rune!', flags: MessageFlags.Ephemeral }).catch(() => {});
-        }
-        run.runes -= cost;
-        run.level += 1;
-        const newStats = calculateStats(run.character, run.level);
-        run.stats = newStats;
-        run.maxHp = calculateMaxHp(newStats.vigor);
-        run.maxMana = calculateMaxMana(newStats.mind);
-        try {
-          applyEquipmentStats(run);
-        } catch (_) {}
-        run.hp = run.maxHp;
-        run.mana = run.maxMana;
-        await run.save();
-
-        const embed = new EmbedBuilder()
-          .setTitle('✨ Lên cấp!')
-          .setDescription(`Level **${run.level}**`)
-          .setColor(0x2ECC71)
-          .addFields(
-            { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
-            { name: 'Mana', value: `${run.mana}/${run.maxMana}`, inline: true },
-            { name: 'Runes', value: `${run.runes}`, inline: true }
-          );
-        await interaction.editReply({
-          embeds: [embed],
-          components: [
-            new ActionRowBuilder().addComponents(
-              new ButtonBuilder().setCustomId('grace_continue').setLabel('Tiếp tục khám phá').setStyle(ButtonStyle.Primary)
-            )
-          ]
-        });
-        return;
-      }
-
-      if (action === 'grace_continue' || action === 'shop_continue') {
-        const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
-        if (!run) return;
-        run.currentPhase = 'exploring';
-        await run.save();
-        const nextChoices = generateLocationChoices(3);
-        const nextButtons = nextChoices.map(loc =>
-          new ButtonBuilder()
-            .setCustomId(`select_location:${loc.id}`)
-            .setLabel(`${loc.emoji} ${loc.name}`)
-            .setStyle(ButtonStyle.Secondary)
-        );
-        const embed = new EmbedBuilder()
-          .setTitle('Tiếp tục hành trình')
-          .setDescription('Chọn địa điểm:')
-          .setColor(0x3498DB)
-          .addFields(
-            { name: 'Location', value: `${run.locationsVisited}`, inline: true },
-            { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
-            { name: 'Level', value: `${run.level}`, inline: true },
-            { name: 'Runes', value: `${run.runes}`, inline: true }
-          );
-        await interaction.editReply({
-          embeds: [embed],
-          components: [new ActionRowBuilder().addComponents(nextButtons)]
-        });
-        return;
-      }
-
-      // ---------- Post-combat Grace ----------
-      if (action === 'post_combat_levelup') {
+      // ---------- Grace ----------
+      if (action === 'grace_levelup' || action === 'post_combat_levelup') {
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run) return;
         const cost = run.level * 100;
@@ -849,17 +931,18 @@ module.exports = {
         await run.save();
 
         const nextCost = run.level * 100;
+        const contId = action === 'grace_levelup' ? 'grace_continue' : 'post_combat_continue';
         const buttons = [];
         if (run.runes >= nextCost) {
           buttons.push(
             new ButtonBuilder()
-              .setCustomId('post_combat_levelup')
+              .setCustomId(action)
               .setLabel(`Lên cấp (${nextCost} Rune)`)
               .setStyle(ButtonStyle.Success)
           );
         }
         buttons.push(
-          new ButtonBuilder().setCustomId('post_combat_continue').setLabel('Tiếp tục khám phá').setStyle(ButtonStyle.Primary)
+          new ButtonBuilder().setCustomId(contId).setLabel('Tiếp tục khám phá').setStyle(ButtonStyle.Primary)
         );
 
         await interaction.editReply({
@@ -878,7 +961,7 @@ module.exports = {
         return;
       }
 
-      if (action === 'post_combat_continue') {
+      if (action === 'grace_continue' || action === 'post_combat_continue' || action === 'shop_continue') {
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run) return;
         run.currentPhase = 'exploring';
@@ -899,7 +982,8 @@ module.exports = {
               .addFields(
                 { name: 'Location', value: `${run.locationsVisited}`, inline: true },
                 { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
-                { name: 'Level', value: `${run.level}`, inline: true }
+                { name: 'Level', value: `${run.level}`, inline: true },
+                { name: 'Runes', value: `${run.runes}`, inline: true }
               )
           ],
           components: [new ActionRowBuilder().addComponents(nextButtons)]
@@ -928,7 +1012,7 @@ module.exports = {
           else if (eq?.type === 'armor') run.inventory.armors.push(eq);
           else if (eq?.type === 'staff') run.inventory.staffs.push(eq);
           else if (eq?.type === 'seal') run.inventory.seals.push(eq);
-          resultMsg = `Bạn đã nhận: **${eq?.name || 'Trang bị'}**`;
+          resultMsg = `Nhận: **${eq?.name || 'Trang bị'}**`;
           if (eq?.spells?.length) resultMsg += `\nSpell: ${eq.spells.map(s => s.name).join(' + ')}`;
         }
         if (chosen.type === 'buff') {
@@ -992,7 +1076,7 @@ module.exports = {
           embeds: [
             new EmbedBuilder()
               .setTitle('✨ Site of Grace')
-              .setDescription(`${resultMsg}\n\nHP/Mana đã hồi đầy.\nRune: **${run.runes}** | Lên cấp: **${levelUpCost}**`)
+              .setDescription(`${resultMsg}\n\nHP/Mana hồi đầy.\nRune: **${run.runes}** | Level up: **${levelUpCost}**`)
               .setColor(0xF1C40F)
               .addFields(
                 { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
@@ -1016,7 +1100,7 @@ module.exports = {
           embeds: [
             new EmbedBuilder()
               .setTitle('🏕️ Rest Area')
-              .setDescription('Đã hồi đầy HP/Mana.')
+              .setDescription('Đã hồi đầy.')
               .setColor(0x1ABC9C)
               .addFields(
                 { name: 'HP', value: `${run.hp}/${run.maxHp}`, inline: true },
@@ -1089,18 +1173,21 @@ module.exports = {
             damageType: boss.damageType,
             resistances: boss.resistances || {},
             canApply: boss.canApply || null,
+            buildupAmount: boss.buildupAmount || 50,
             runeReward: boss.runeReward || [600, 900],
-            status: {}
+            status: {},
+            statusState: createStatusState({}, false)
           },
           turn: 1,
-          playerStatus: {},
           log: [`🌑 **NIGHTLORD** – ${boss.name}`],
           isAuto: false,
           isNightlord: true,
           skillCooldown: 0,
           ultimateCharge: 0,
           playerBuffs: {},
-          enemyDebuffs: {}
+          enemyDebuffs: {},
+          playerStatusState: createStatusState(run.stats || {}, true),
+          playerStatus: {}
         };
         run.combat = combat;
         run.currentPhase = 'nightlord';
@@ -1114,134 +1201,47 @@ module.exports = {
         return;
       }
 
-      // ---------- Combat helpers ----------
-      async function finishCombatWin(run, combat, enemy, log) {
-        const isNightlord = combat.isNightlord;
-        const isMiniboss = combat.isMiniboss;
-        const gainedRunes =
-          Math.floor(Math.random() * (enemy.runeReward[1] - enemy.runeReward[0] + 1)) + enemy.runeReward[0];
-        run.runes = (run.runes || 0) + gainedRunes;
-        run.combat = null;
-
-        if (isNightlord) {
-          run.status = 'completed';
-          run.currentPhase = 'ended';
-          run.pendingBuild = true;
-          const murkGained = 80 + run.locationsVisited * 2 + run.level * 3;
-          await User.findOneAndUpdate(
-            { discordId: interaction.user.id },
-            { $inc: { murk: murkGained, wins: 1, totalRuns: 1 }, lastActive: new Date() }
-          );
-          await run.save();
-          return interaction.editReply({
-            embeds: [
-              new EmbedBuilder()
-                .setTitle('🎉 CHIẾN THẮNG NIGHTLORD!')
-                .setDescription(`Đánh bại **${enemy.name}**!\n+${gainedRunes} Rune | +${murkGained} Murk\nLưu build PvP?`)
-                .setColor(0xF1C40F)
-            ],
-            components: [
-              new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('save_build').setLabel('Lưu Build').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('skip_save_build').setLabel('Bỏ qua').setStyle(ButtonStyle.Secondary)
-              )
-            ]
-          });
-        }
-
-        const rewards = generateRewards(isMiniboss ? 2 : 1, run.character);
-        run.tempRewards = rewards;
-        if (combat.minibossType === 'miniboss2') run.currentPhase = 'rest';
-        else run.currentPhase = 'exploring';
-        run.markModified('tempRewards');
-        await run.save();
-        const { embed, row } = createRewardEmbed(run, `${enemy.emoji} ${enemy.name}`, rewards, gainedRunes);
-        return interaction.editReply({
-          content: `🎉 Thắng${isMiniboss ? ' MINIBOSS' : ''}! +${gainedRunes} Rune`,
-          embeds: [embed],
-          components: [row]
-        });
-      }
-
-      async function enemyCounter(run, combat, enemy, log) {
-        let playerDied = false;
-        let enemyDied = false;
-        if (tryDodge(run)) {
-          log.push(`💨 Bạn né đòn của ${enemy.name}!`);
-        } else {
-          let enemyDmg = calculateEnemyDamage(enemy, run);
-          const armorDef = run.defense || {};
-          const playerResist = {
-            physical: (run.stats?.strength || 10) * 0.8 + (armorDef.physical || 0),
-            fire: (run.stats?.vigor || 10) * 0.6 + (armorDef.fire || 0),
-            magic: (run.stats?.intelligence || 10) * 0.7 + (armorDef.magic || 0),
-            lightning: (run.stats?.dexterity || 10) * 0.7 + (armorDef.lightning || 0),
-            holy: (run.stats?.faith || 10) * 0.7 + (armorDef.holy || 0)
-          };
-          const resBonus = combat.playerBuffs?.resistanceBonus?.value || 0;
-          if (resBonus) for (const k of Object.keys(playerResist)) playerResist[k] += resBonus;
-
-          enemyDmg = applyResistance(enemyDmg, enemy.damageType, playerResist);
-          const reflect = combat.playerBuffs?.reflect?.value || 0;
-          if (reflect > 0) {
-            const refDmg = Math.floor(enemyDmg * reflect);
-            enemy.currentHp -= refDmg;
-            log.push(`🛡️ Phản **${refDmg}**!`);
-            if (enemy.currentHp <= 0) {
-              enemy.currentHp = 0;
-              enemyDied = true;
-            }
-          }
-          if (!enemyDied) {
-            run.hp -= enemyDmg;
-            log.push(`💥 ${enemy.name} gây **${enemyDmg}**!`);
-            if (run.hp <= 0) {
-              run.hp = 0;
-              playerDied = true;
-            }
-          }
-        }
-        return { playerDied, enemyDied };
-      }
-
       // ---------- Combat Attack ----------
       if (action === 'combat_attack') {
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run?.combat) return;
 
-        const combat = ensureCombatMeta(run.combat);
+        const combat = ensureCombatMeta(run.combat, run);
         const enemy = combat.enemy;
         let log = combat.log || [];
 
-        const ps = processStatusEffects({ status: combat.playerStatus || {} });
-        if (ps.damage > 0) {
-          run.hp -= ps.damage;
-          log.push(...ps.messages.map(m => `Bạn: ${m}`));
-          if (run.hp <= 0) {
-            run.hp = 0;
-            await run.save();
-            const def = await handleRunDefeat(run, interaction, log);
-            return interaction.editReply({ embeds: [def.embed || def], components: def.components || [] });
-          }
-        }
+        if (await tickPlayerStatusOrStop(run, combat, enemy, log)) return;
 
         const dmgInfo = calculatePlayerDamage(run, 'attack');
         let finalDamage = applyResistance(dmgInfo.amount, dmgInfo.type, enemy.resistances || {});
         if (Math.random() < 0.07) log.push(`💨 ${enemy.name} né!`);
         else {
           enemy.currentHp -= finalDamage;
-          log.push(`⚔️ Tấn công gây **${finalDamage}** (${dmgInfo.type})!`);
+          log.push(`⚔️ Tấn công **${finalDamage}** (${dmgInfo.type})!`);
         }
+
+        const weapon = run.inventory?.equipped?.weapon;
+if (weapon?.status && enemy.statusState) {
+  const buildupAmt = weapon.buildup || 40;
+  const r = applyStatusBuildup(enemy.statusState, weapon.status, buildupAmt, {
+    maxHp: enemy.maxHp,
+    maxMana: 0
+  });
+  if (r.messages.length) log.push(...r.messages);
+  if (r.instantDamage > 0) {
+    enemy.currentHp -= r.instantDamage;
+    if (enemy.currentHp < 0) enemy.currentHp = 0;
+  }
+}
 
         const data = getCharacterData(run.character);
         addUltimateCharge(combat, run.character, data?.ultimate?.chargeOnAttack || 18);
 
         let enemyDied = enemy.currentHp <= 0;
         if (enemyDied) enemy.currentHp = 0;
-
         let playerDied = false;
         if (!enemyDied) {
-          const c = await enemyCounter(run, combat, enemy, log);
+          const c = enemyHitPlayer(run, combat, enemy, log);
           playerDied = c.playerDied;
           enemyDied = enemyDied || c.enemyDied;
         }
@@ -1258,7 +1258,7 @@ module.exports = {
           const def = await handleRunDefeat(run, interaction, log);
           return interaction.editReply({ embeds: [def.embed || def], components: def.components || [] });
         }
-        if (enemyDied) return finishCombatWin(run, combat, enemy, log);
+        if (enemyDied) return finishCombatWin(run, combat, enemy);
 
         await run.save();
         return interaction.editReply({
@@ -1272,7 +1272,7 @@ module.exports = {
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run?.combat) return;
 
-        const combat = ensureCombatMeta(run.combat);
+        const combat = ensureCombatMeta(run.combat, run);
         const enemy = combat.enemy;
         let log = combat.log || [];
         const mod = getCharacter(run.character);
@@ -1280,13 +1280,15 @@ module.exports = {
 
         if (!mod || !data?.skill) {
           return interaction.followUp({
-            content: 'Nhân vật chưa có skill module. (Đang hỗ trợ Wylder trước)',
+            content: 'Nhân vật chưa có skill module.',
             flags: MessageFlags.Ephemeral
           }).catch(() => {});
         }
 
+        if (await tickPlayerStatusOrStop(run, combat, enemy, log)) return;
+
         if (!canUseSkill(combat)) {
-          log.push(`⏳ Skill CD: **${combat.skillCooldown}** turn.`);
+          log.push(`⏳ Skill CD: **${combat.skillCooldown}**`);
           combat.log = log.slice(-15);
           run.markModified('combat');
           await run.save();
@@ -1295,9 +1297,8 @@ module.exports = {
             components: createCombatButtons(run, false)
           });
         }
-
         if (run.mana < data.skill.manaCost) {
-          log.push(`❌ Không đủ Mana!`);
+          log.push('❌ Không đủ Mana!');
           combat.log = log.slice(-15);
           run.markModified('combat');
           await run.save();
@@ -1309,20 +1310,16 @@ module.exports = {
 
         run.mana -= data.skill.manaCost;
         const skillResult = mod.executeSkill({
-          run,
-          combat,
-          stats: run.stats,
-          equipped: run.inventory?.equipped
+          run, combat, stats: run.stats, equipped: run.inventory?.equipped
         });
         log.push(...(skillResult.log || []));
         if (skillResult.heal) run.hp = Math.min(run.maxHp, run.hp + skillResult.heal);
         if (skillResult.damage > 0) {
-          const finalDamage = applyResistance(
+          enemy.currentHp -= applyResistance(
             skillResult.damage,
             skillResult.damageType || 'physical',
             enemy.resistances || {}
           );
-          enemy.currentHp -= finalDamage;
         }
         applySkillEffects(combat, skillResult.effects);
         combat.skillCooldown = data.skill.cooldown || 3;
@@ -1332,7 +1329,7 @@ module.exports = {
         if (enemyDied) enemy.currentHp = 0;
         let playerDied = false;
         if (!enemyDied) {
-          const c = await enemyCounter(run, combat, enemy, log);
+          const c = enemyHitPlayer(run, combat, enemy, log);
           playerDied = c.playerDied;
           enemyDied = enemyDied || c.enemyDied;
         }
@@ -1349,7 +1346,7 @@ module.exports = {
           const def = await handleRunDefeat(run, interaction, log);
           return interaction.editReply({ embeds: [def.embed || def], components: def.components || [] });
         }
-        if (enemyDied) return finishCombatWin(run, combat, enemy, log);
+        if (enemyDied) return finishCombatWin(run, combat, enemy);
 
         await run.save();
         return interaction.editReply({
@@ -1363,18 +1360,17 @@ module.exports = {
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run?.combat) return;
 
-        const combat = ensureCombatMeta(run.combat);
+        const combat = ensureCombatMeta(run.combat, run);
         const enemy = combat.enemy;
         let log = combat.log || [];
         const mod = getCharacter(run.character);
         const data = getCharacterData(run.character);
 
         if (!mod || !data?.ultimate) {
-          return interaction.followUp({
-            content: 'Nhân vật chưa có ultimate module.',
-            flags: MessageFlags.Ephemeral
-          }).catch(() => {});
+          return interaction.followUp({ content: 'Chưa có ultimate module.', flags: MessageFlags.Ephemeral }).catch(() => {});
         }
+
+        if (await tickPlayerStatusOrStop(run, combat, enemy, log)) return;
 
         if (!canUseUltimate(combat, run.character)) {
           log.push(`⚡ Ult: **${combat.ultimateCharge}/${data.ultimate.chargeRequired}**`);
@@ -1388,20 +1384,16 @@ module.exports = {
         }
 
         const ultResult = mod.executeUltimate({
-          run,
-          combat,
-          stats: run.stats,
-          equipped: run.inventory?.equipped
+          run, combat, stats: run.stats, equipped: run.inventory?.equipped
         });
         log.push(...(ultResult.log || []));
         if (ultResult.heal) run.hp = Math.min(run.maxHp, run.hp + ultResult.heal);
         if (ultResult.damage > 0) {
-          const finalDamage = applyResistance(
+          enemy.currentHp -= applyResistance(
             ultResult.damage,
             ultResult.damageType || 'physical',
             enemy.resistances || {}
           );
-          enemy.currentHp -= finalDamage;
         }
         applySkillEffects(combat, ultResult.effects);
         combat.ultimateCharge = 0;
@@ -1410,7 +1402,7 @@ module.exports = {
         if (enemyDied) enemy.currentHp = 0;
         let playerDied = false;
         if (!enemyDied) {
-          const c = await enemyCounter(run, combat, enemy, log);
+          const c = enemyHitPlayer(run, combat, enemy, log);
           playerDied = c.playerDied;
           enemyDied = enemyDied || c.enemyDied;
         }
@@ -1427,7 +1419,7 @@ module.exports = {
           const def = await handleRunDefeat(run, interaction, log);
           return interaction.editReply({ embeds: [def.embed || def], components: def.components || [] });
         }
-        if (enemyDied) return finishCombatWin(run, combat, enemy, log);
+        if (enemyDied) return finishCombatWin(run, combat, enemy);
 
         await run.save();
         return interaction.editReply({
@@ -1441,7 +1433,7 @@ module.exports = {
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run?.combat) return;
 
-        const combat = ensureCombatMeta(run.combat);
+        const combat = ensureCombatMeta(run.combat, run);
         const enemy = combat.enemy;
         let log = combat.log || [];
         const spellIndex = parseInt(value, 10);
@@ -1451,8 +1443,11 @@ module.exports = {
         if (!spell) {
           return interaction.followUp({ content: 'Spell không tồn tại.', flags: MessageFlags.Ephemeral }).catch(() => {});
         }
+
+        if (await tickPlayerStatusOrStop(run, combat, enemy, log)) return;
+
         if (run.mana < (spell.manaCost || 12)) {
-          log.push(`❌ Không đủ Mana cho **${spell.name}**!`);
+          log.push(`❌ Không đủ Mana (**${spell.name}**)!`);
           combat.log = log.slice(-15);
           run.markModified('combat');
           await run.save();
@@ -1464,9 +1459,9 @@ module.exports = {
 
         run.mana -= spell.manaCost || 12;
         const dmgInfo = calculateSpellDamage(run, spell);
-        let finalDamage = applyResistance(dmgInfo.amount, dmgInfo.type, enemy.resistances || {});
+        const finalDamage = applyResistance(dmgInfo.amount, dmgInfo.type, enemy.resistances || {});
         enemy.currentHp -= finalDamage;
-        log.push(`✨ **${spell.name}** gây **${finalDamage}** (${dmgInfo.type})!`);
+        log.push(`✨ **${spell.name}** **${finalDamage}** (${dmgInfo.type})!`);
 
         const data = getCharacterData(run.character);
         addUltimateCharge(combat, run.character, data?.ultimate?.chargeOnSkill || 20);
@@ -1475,7 +1470,7 @@ module.exports = {
         if (enemyDied) enemy.currentHp = 0;
         let playerDied = false;
         if (!enemyDied) {
-          const c = await enemyCounter(run, combat, enemy, log);
+          const c = enemyHitPlayer(run, combat, enemy, log);
           playerDied = c.playerDied;
           enemyDied = enemyDied || c.enemyDied;
         }
@@ -1492,7 +1487,7 @@ module.exports = {
           const def = await handleRunDefeat(run, interaction, log);
           return interaction.editReply({ embeds: [def.embed || def], components: def.components || [] });
         }
-        if (enemyDied) return finishCombatWin(run, combat, enemy, log);
+        if (enemyDied) return finishCombatWin(run, combat, enemy);
 
         await run.save();
         return interaction.editReply({
@@ -1501,23 +1496,39 @@ module.exports = {
         });
       }
 
-      // ---------- Auto (đơn giản: lặp attack/skill logic tối đa 12 turn) ----------
+      // ---------- Auto ----------
       if (action === 'combat_auto') {
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run?.combat) return;
 
-        let combat = ensureCombatMeta(run.combat);
+        let combat = ensureCombatMeta(run.combat, run);
         let log = combat.log || [];
         let safety = 0;
 
         while (run.hp > 0 && combat.enemy.currentHp > 0 && safety < 12) {
           safety++;
           const enemy = combat.enemy;
+
+          const tick = processStatusEffects(combat.playerStatusState);
+          if (tick.messages?.length) log.push(...tick.messages.map(m => `Bạn: ${m}`));
+          combat._playerResistPenalty = tick.resistPenalty || 0;
+          if (tick.damage > 0) {
+            run.hp -= tick.damage;
+            if (run.hp <= 0) break;
+          }
+          if (tick.skipTurn) {
+            enemyHitPlayer(run, combat, enemy, log);
+            combat.turn += 1;
+            tickCombatMeta(combat);
+            if (run.hp <= 0) break;
+            continue;
+          }
+
           const next = runAutoTurn(run);
           const data = getCharacterData(run.character);
           const mod = getCharacter(run.character);
 
-          if (next === 'combat_skill' && mod && canUseSkill(combat) && run.mana >= (data?.skill?.manaCost || 16)) {
+          if (next === 'combat_skill' && mod && canUseSkill(combat) && run.mana >= (data?.skill?.manaCost || 99)) {
             run.mana -= data.skill.manaCost;
             const r = mod.executeSkill({ run, combat, stats: run.stats, equipped: run.inventory?.equipped });
             log.push(...(r.log || []));
@@ -1528,11 +1539,7 @@ module.exports = {
             applySkillEffects(combat, r.effects);
             combat.skillCooldown = data.skill.cooldown || 3;
             addUltimateCharge(combat, run.character, data.ultimate?.chargeOnSkill || 28);
-          } else if (
-            next === 'combat_ultimate' &&
-            mod &&
-            canUseUltimate(combat, run.character)
-          ) {
+          } else if (next === 'combat_ultimate' && mod && canUseUltimate(combat, run.character)) {
             const r = mod.executeUltimate({ run, combat, stats: run.stats, equipped: run.inventory?.equipped });
             log.push(...(r.log || []));
             if (r.damage) {
@@ -1544,7 +1551,7 @@ module.exports = {
             const dmgInfo = calculatePlayerDamage(run, 'attack');
             const fd = applyResistance(dmgInfo.amount, dmgInfo.type, enemy.resistances || {});
             enemy.currentHp -= fd;
-            log.push(`⚔️ Auto tấn công **${fd}**!`);
+            log.push(`⚔️ Auto **${fd}**`);
             addUltimateCharge(combat, run.character, data?.ultimate?.chargeOnAttack || 18);
           }
 
@@ -1552,10 +1559,8 @@ module.exports = {
             enemy.currentHp = 0;
             break;
           }
-
-          const c = await enemyCounter(run, combat, enemy, log);
-          if (c.playerDied) break;
-
+          enemyHitPlayer(run, combat, enemy, log);
+          if (run.hp <= 0) break;
           combat.turn += 1;
           tickCombatMeta(combat);
           combat.enemy = enemy;
@@ -1570,7 +1575,7 @@ module.exports = {
           const def = await handleRunDefeat(run, interaction, log);
           return interaction.editReply({ embeds: [def.embed || def], components: def.components || [] });
         }
-        if (combat.enemy.currentHp <= 0) return finishCombatWin(run, combat, combat.enemy, log);
+        if (combat.enemy.currentHp <= 0) return finishCombatWin(run, combat, combat.enemy);
 
         await run.save();
         return interaction.editReply({
@@ -1602,7 +1607,7 @@ module.exports = {
           return interaction.followUp({ content: 'Build không hợp lệ.', flags: MessageFlags.Ephemeral }).catch(() => {});
         }
         if (getMatchByUser(userId)) {
-          return interaction.followUp({ content: 'Đang trong trận PvP.', flags: MessageFlags.Ephemeral }).catch(() => {});
+          return interaction.followUp({ content: 'Đang trong PvP.', flags: MessageFlags.Ephemeral }).catch(() => {});
         }
 
         removeFromQueue(userId);
@@ -1611,7 +1616,7 @@ module.exports = {
 
         if (!opponent) {
           const reply = await interaction.editReply({
-            content: `Build **${myBuild.name}** – đang tìm đối thủ...`,
+            content: `Build **${myBuild.name}** – tìm đối thủ...`,
             embeds: [],
             components: [
               new ActionRowBuilder().addComponents(
@@ -1635,7 +1640,7 @@ module.exports = {
         );
 
         const battleMsg = await interaction.channel.send({
-          content: `⚔️ **PvP:** ${interaction.user.username} vs ${opponent.data.username}\n▶️ Lượt **${interaction.user.username}**`,
+          content: `⚔️ **PvP:** ${interaction.user.username} vs ${opponent.data.username}\n▶️ **${interaction.user.username}**`,
           embeds: [createPvPEmbed(match)],
           components: createPvPButtons(match)
         });
@@ -1643,7 +1648,7 @@ module.exports = {
         match.messageId = battleMsg.id;
 
         await interaction.editReply({
-          content: `Đã match **${opponent.data.username}**! Xem tin nhắn trận trong channel.`,
+          content: `Match **${opponent.data.username}**! Xem tin trong channel.`,
           embeds: [],
           components: []
         });
@@ -1652,16 +1657,13 @@ module.exports = {
 
       if (action === 'pvp_cancel_queue') {
         removeFromQueue(interaction.user.id);
-        await interaction.editReply({ content: 'Đã hủy tìm PvP.', embeds: [], components: [] });
+        await interaction.editReply({ content: 'Đã hủy PvP.', embeds: [], components: [] });
         return;
       }
     } catch (error) {
       console.error('Button error:', error);
       try {
-        await interaction.followUp({
-          content: 'Lỗi khi xử lý nút.',
-          flags: MessageFlags.Ephemeral
-        });
+        await interaction.followUp({ content: 'Lỗi khi xử lý nút.', flags: MessageFlags.Ephemeral });
       } catch (_) {}
     }
   }

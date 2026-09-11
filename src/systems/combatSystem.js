@@ -2,6 +2,7 @@ const enemies = require('../data/enemies');
 const characters = require('../data/characters');
 const { getCharacter, getCharacterData } = require('../characters');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const combat = createCombatState(run, selectedId);
 
 // ====================== CÔNG THỨC SÁT THƯƠNG ======================
 
@@ -153,10 +154,12 @@ function calculateEnemyDamage(enemy, run) {
   return Math.floor(base * variance);
 }
 
-function applyResistance(damage, damageType, resistances = {}) {
-  const resist = resistances[damageType] || 0;
-  const multiplier = 1 - (resist / 100);
-  return Math.max(1, Math.floor(damage * multiplier));
+function applyResistance(rawDamage, damageType, resistances = {}, resistPenalty = 0) {
+  let res = resistances[damageType] || resistances.physical || 0;
+  // Frost: -20% mọi kháng → kháng hiệu dụng giảm
+  res = res * (1 - resistPenalty);
+  const factor = 1 - Math.min(0.75, res / 100); // tuỳ công thức cũ của bạn
+  return Math.max(1, Math.floor(rawDamage * factor));
 }
 
 function tryDodge(run) {
@@ -167,63 +170,189 @@ function tryDodge(run) {
 
 // ====================== STATUS EFFECT ======================
 
-function applyStatus(target, status, stacks = 1) {
-  if (!target.status) target.status = {};
-  if (!target.status[status]) target.status[status] = 0;
-  target.status[status] += stacks;
+/**
+ * @param {object} statusState - statusState của target
+ * @param {string} type - bleed | frost | poison | rot | madness | sleep
+ * @param {number} amount - lượng build-up cộng thêm
+ * @param {object} targetInfo - { maxHp, maxMana, hp, mana } để tính damage lúc proc
+ * @returns {{ procced: boolean, messages: string[], instantDamage?: number, manaLoss?: number, skipTurn?: boolean }}
+ */
+
+function applyStatusBuildup(statusState, type, amount, targetInfo = {}) {
+  const messages = [];
+  if (!statusState || !type || !amount || amount <= 0) {
+    return { procced: false, messages, instantDamage: 0, manaLoss: 0, skipTurn: false };
+  }
+
+  if (!statusState.buildup) statusState.buildup = {};
+  if (!statusState.resistance) statusState.resistance = {};
+  if (!statusState.active) statusState.active = {};
+
+  statusState.buildup[type] = (statusState.buildup[type] || 0) + amount;
+  const resist = statusState.resistance[type] || 100;
+
+  // Chưa đủ → chỉ báo build-up nhẹ (optional, có thể bỏ log cho đỡ spam)
+  if (statusState.buildup[type] < resist) {
+    // messages.push(`(${type} ${statusState.buildup[type]}/${resist})`);
+    return { procced: false, messages, instantDamage: 0, manaLoss: 0, skipTurn: false };
+  }
+
+  // ===== PROC =====
+  statusState.buildup[type] = 0;
+  const maxHp = targetInfo.maxHp || 100;
+  const maxMana = targetInfo.maxMana || 50;
+
+  let instantDamage = 0;
+  let manaLoss = 0;
+  let skipTurn = false;
+
+  switch (type) {
+    case 'bleed':
+      instantDamage = Math.floor(maxHp * 0.14);
+      messages.push(`🩸 **Hemorrhage!** Bleed – **${instantDamage}** ST (14% max HP)!`);
+      break;
+
+    case 'frost':
+      instantDamage = Math.floor(maxHp * 0.08);
+      statusState.active.frost = { turns: 3, resistPenalty: 0.2 };
+      messages.push(`❄️ **Frostbite!** **${instantDamage}** ST – kháng ST **-20%** (3 turn)!`);
+      break;
+
+    case 'poison':
+      statusState.active.poison = {
+        turns: 5,
+        tickDamage: Math.max(6, Math.floor(maxHp * 0.025))
+      };
+      messages.push(`☠️ **Poison!** DoT **${statusState.active.poison.tickDamage}**/turn (5 turn)`);
+      break;
+
+    case 'rot':
+      statusState.active.rot = {
+        turns: 5,
+        tickDamage: Math.max(10, Math.floor(maxHp * 0.04))
+      };
+      messages.push(`🦠 **Scarlet Rot!** DoT **${statusState.active.rot.tickDamage}**/turn (5 turn)`);
+      break;
+
+    case 'madness':
+      instantDamage = Math.floor(maxHp * 0.08);
+      manaLoss = Math.floor(maxMana * 0.2);
+      messages.push(`😵 **Madness!** **${instantDamage}** ST và mất **${manaLoss}** Mana!`);
+      break;
+
+    case 'sleep':
+      statusState.active.sleep = { turns: 1 };
+      skipTurn = true;
+      messages.push(`😴 **Sleep!** Mất 1 lượt!`);
+      break;
+
+    default:
+      break;
+  }
+
+  return { procced: true, messages, instantDamage, manaLoss, skipTurn };
 }
 
-function processStatusEffects(target) {
-  let totalDamage = 0;
+/**
+ * Tick status đang active trên 1 statusState
+ * @returns {{ damage: number, messages: string[], skipTurn: boolean, resistPenalty: number }}
+ */
+function processStatusEffects(statusState) {
   const messages = [];
+  let damage = 0;
+  let skipTurn = false;
+  let resistPenalty = 0;
 
-  if (!target.status) return { damage: 0, messages: [] };
-
-  if (target.status.poison > 0) {
-    const dmg = 8 + target.status.poison * 4;
-    totalDamage += dmg;
-    messages.push(`☠️ Poison gây ${dmg} sát thương`);
-    target.status.poison -= 1;
-    if (target.status.poison <= 0) delete target.status.poison;
+  // Tương thích gọi kiểu cũ: processStatusEffects({ status: ... }) → bỏ qua
+  if (!statusState || !statusState.active) {
+    // Nếu lỡ truyền { status: { poison: 2 } } bản cũ — không crash
+    if (statusState?.status) {
+      return { damage: 0, messages: ['(status cũ, bỏ qua)'], skipTurn: false, resistPenalty: 0 };
+    }
+    return { damage: 0, messages: [], skipTurn: false, resistPenalty: 0 };
   }
 
-  if (target.status.bleed > 0) {
-    const dmg = 12 + target.status.bleed * 6;
-    totalDamage += dmg;
-    messages.push(`🩸 Bleed gây ${dmg} sát thương`);
-    target.status.bleed -= 1;
-    if (target.status.bleed <= 0) delete target.status.bleed;
+  const active = statusState.active;
+
+  if (active.poison) {
+    const tick = active.poison.tickDamage || 8;
+    damage += tick;
+    messages.push(`☠️ Poison: **${tick}** ST (${active.poison.turns} turn)`);
+    active.poison.turns -= 1;
+    if (active.poison.turns <= 0) delete active.poison;
   }
 
-  if (target.status.rot > 0) {
-    const dmg = 15 + target.status.rot * 7;
-    totalDamage += dmg;
-    messages.push(`🦠 Rot gây ${dmg} sát thương`);
-    target.status.rot -= 1;
-    if (target.status.rot <= 0) delete target.status.rot;
+  if (active.rot) {
+    const tick = active.rot.tickDamage || 15;
+    damage += tick;
+    messages.push(`🦠 Rot: **${tick}** ST (${active.rot.turns} turn)`);
+    active.rot.turns -= 1;
+    if (active.rot.turns <= 0) delete active.rot;
   }
 
-  if (target.status.frost > 0) {
-    messages.push(`❄️ Bị Frost`);
-    target.status.frost -= 1;
-    if (target.status.frost <= 0) delete target.status.frost;
+  if (active.frost) {
+    resistPenalty = active.frost.resistPenalty || 0.2;
+    messages.push(`❄️ Frostbite: kháng ST -${Math.floor(resistPenalty * 100)}% (${active.frost.turns} turn)`);
+    active.frost.turns -= 1;
+    if (active.frost.turns <= 0) delete active.frost;
   }
 
-  return { damage: totalDamage, messages };
+  if (active.sleep) {
+    skipTurn = true;
+    messages.push(`😴 Sleep – mất lượt!`);
+    active.sleep.turns -= 1;
+    if (active.sleep.turns <= 0) delete active.sleep;
+  }
+
+  return { damage, messages, skipTurn, resistPenalty };
+}
+
+module.exports.processStatusEffects = processStatusEffects;
+
+function createStatusState(stats = {}, isPlayer = true) {
+  // Player: scale nhẹ theo vigor / mind / faith
+  const vigor = stats.vigor || 10;
+  const mind = stats.mind || 10;
+  const faith = stats.faith || 10;
+
+  const base = isPlayer ? 90 : 80;
+
+  return {
+    resistance: {
+      bleed: base + Math.floor(vigor * 1.5),
+      frost: base + Math.floor(vigor * 1.2),
+      poison: base + Math.floor(vigor * 1.3),
+      rot: base + 15 + Math.floor(vigor * 1.4),
+      madness: base + Math.floor(mind * 1.5),
+      sleep: base + Math.floor(faith * 1.2)
+    },
+    buildup: {
+      bleed: 0, frost: 0, poison: 0, rot: 0, madness: 0, sleep: 0
+    },
+    active: {}
+  };
 }
 
 // ====================== TẠO COMBAT STATE ======================
 
 function createCombatState(run, locationId) {
-  const enemyPool = ['soldier', 'fire_mage', 'swamp_creature', 'lightning_knight', 'church_zealot', 'mage'];
-  const randomId = enemyPool[Math.floor(Math.random() * enemyPool.length)];
-  const raw = enemies[randomId];
+  const enemies = require('../data/enemies'); // hoặc path đúng của bạn
 
-  // locationsVisited đã +1 ở select_location trước khi gọi createCombatState
-  // Nếu bạn +1 trước khi tạo combat → dùng run.locationsVisited
-  // Nếu +1 sau → dùng run.locationsVisited + 1
+  // ★ Chọn quái theo location thay vì random full pool
+  const enemyId = pickEnemyIdForLocation(locationId);
+  let raw = enemies[enemyId];
+
+  // Fallback nếu thiếu data
+  if (!raw) {
+    console.warn('[combat] missing enemy', enemyId, '→ soldier');
+    raw = enemies.soldier || Object.values(enemies)[0];
+  }
+
   const floor = run.locationsVisited || 1;
-  const template = scaleEnemyTemplate(raw, floor);
+  const template =
+    typeof scaleEnemyTemplate === 'function'
+      ? scaleEnemyTemplate(raw, floor)
+      : raw;
 
   const enemy = {
     id: template.id,
@@ -235,23 +364,70 @@ function createCombatState(run, locationId) {
     damageType: template.damageType,
     resistances: template.resistances || {},
     canApply: template.canApply || null,
-    runeReward: template.runeReward,
-    status: {}
+    buildupAmount: template.buildupAmount || 0,
+    runeReward: template.runeReward || [40, 65],
+    status: {},
+    statusState: createStatusState({}, false)
   };
+
+  if (template.statusResistance) {
+    enemy.statusState.resistance = {
+      ...enemy.statusState.resistance,
+      ...template.statusResistance
+    };
+  }
 
   return {
     enemy,
     turn: 1,
-    playerStatus: {},
-    log: [`Trận đấu với ${enemy.emoji} **${enemy.name}** (Tầng ${floor})`],
+    log: [
+      `Trận đấu với ${enemy.emoji} **${enemy.name}** (Tầng ${floor})` +
+        (enemy.canApply ? ` – có thể gây **${enemy.canApply}**` : '')
+    ],
     isAuto: false,
     locationId,
     skillCooldown: 0,
     ultimateCharge: 0,
     playerBuffs: {},
-    enemyDebuffs: {}
+    enemyDebuffs: {},
+    playerStatusState: createStatusState(run.stats || {}, true),
+    playerStatus: {}
   };
 }
+
+const locationEnemyMap = {
+  // Đầm lầy
+  swamp: ['swamp_creature', 'rot_infested', 'sleep_bat'],
+
+  // Di tích / băng
+  ruins: ['frost_mage', 'soldier', 'frost_mage'],
+
+  // Nhà thờ
+  church: ['soldier', 'mad_nobles', 'soldier'],
+
+  // Trại lính
+  camp: ['soldier', 'soldier', 'mad_nobles'],
+
+  // Thành trì / lâu đài
+  fortress: ['soldier', 'mad_nobles'],
+  castle: ['soldier', 'frost_mage', 'mad_nobles'],
+
+  // Lò rèn
+  forge: ['soldier', 'soldier'],
+
+  // Tháp ma thuật
+  mage_tower: ['frost_mage', 'mad_nobles', 'frost_mage'],
+
+  // Mặc định (shop/grace không combat)
+  default: ['soldier', 'swamp_creature', 'frost_mage', 'mad_nobles']
+};
+
+function pickEnemyIdForLocation(locationId) {
+  const pool = locationEnemyMap[locationId] || locationEnemyMap.default;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+
 
 // ====================== EMBED & BUTTON ======================
 
@@ -557,7 +733,7 @@ module.exports = {
   calculateEnemyDamage,
   applyResistance,
   tryDodge,
-  applyStatus,
+  applyStatusBuildup,
   processStatusEffects,
   runAutoTurn,
   handleRunDefeat,
@@ -571,3 +747,5 @@ module.exports.canUseUltimate = canUseUltimate;
 module.exports.addUltimateCharge = addUltimateCharge;
 module.exports.applySkillEffects = applySkillEffects;
 module.exports.tickCombatMeta = tickCombatMeta;
+module.exports.locationEnemyMap = locationEnemyMap;
+module.exports.pickEnemyIdForLocation = pickEnemyIdForLocation;

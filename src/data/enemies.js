@@ -1,96 +1,75 @@
 module.exports = {
-  // ===== Enemy thường =====
   soldier: {
     id: 'soldier',
-    name: 'Night Soldier',
+    name: 'Soldier',
     emoji: '🛡️',
-    hp: 180,
-    damage: 28,
+    hp: 80,
+    damage: 18,
     damageType: 'physical',
-    resistances: { physical: 10, fire: 0, magic: 0, lightning: 5, holy: 0 },
-    speed: 10,
-    canApply: null,
-    exp: 25,
-    runeReward: [30, 50]
+    resistances: { physical: 10, fire: 5, magic: 5, lightning: 5, holy: 5 },
+    canApply: null,          // không gây status
+    buildupAmount: 0,
+    runeReward: [40, 65]
   },
-  fire_mage: {
-    id: 'fire_mage',
-    name: 'Fire Monk',
-    emoji: '🔥',
-    hp: 140,
-    damage: 35,
-    damageType: 'fire',
-    resistances: { physical: 0, fire: 25, magic: 5, lightning: 0, holy: -10 },
-    speed: 12,
-    canApply: null,
-    exp: 30,
-    runeReward: [35, 55]
-  },
+
   swamp_creature: {
     id: 'swamp_creature',
     name: 'Swamp Creature',
     emoji: '🐸',
-    hp: 200,
-    damage: 22,
+    hp: 95,
+    damage: 16,
     damageType: 'physical',
-    resistances: { physical: 5, fire: -15, magic: 0, lightning: 0, holy: 0 },
-    speed: 8,
+    resistances: { physical: 5, fire: 15, magic: 5, lightning: 0, holy: 5 },
     canApply: 'poison',
-    exp: 28,
-    runeReward: [32, 52]
-  },
-  lightning_knight: {
-    id: 'lightning_knight',
-    name: 'Lightning Knight',
-    emoji: '⚡',
-    hp: 220,
-    damage: 32,
-    damageType: 'lightning',
-    resistances: { physical: 15, fire: 0, magic: 0, lightning: 30, holy: 5 },
-    speed: 11,
-    canApply: null,
-    exp: 35,
-    runeReward: [40, 65]
-  },
-  church_zealot: {
-    id: 'church_zealot',
-    name: 'Church Zealot',
-    emoji: '⛪',
-    hp: 190,
-    damage: 30,
-    damageType: 'holy',
-    resistances: { physical: 5, fire: 10, magic: 0, lightning: 0, holy: 25 },
-    speed: 9,
-    canApply: null,
-    exp: 32,
-    runeReward: [38, 58]
-  },
-  mage: {
-    id: 'mage',
-    name: 'Glintstone Mage',
-    emoji: '🧙',
-    hp: 130,
-    damage: 40,
-    damageType: 'magic',
-    resistances: { physical: -5, fire: 0, magic: 30, lightning: 0, holy: 0 },
-    speed: 13,
-    canApply: null,
-    exp: 33,
-    runeReward: [36, 60]
+    buildupAmount: 42,
+    runeReward: [45, 70]
   },
 
-  // ===== Elite / mạnh hơn =====
-  elite_knight: {
-    id: 'elite_knight',
-    name: 'Elite Black Knight',
-    emoji: '🖤',
-    hp: 380,
-    damage: 45,
+  rot_infested: {
+    id: 'rot_infested',
+    name: 'Rot Infested',
+    emoji: '🦠',
+    hp: 110,
+    damage: 20,
     damageType: 'physical',
-    resistances: { physical: 25, fire: 10, magic: 5, lightning: 10, holy: 5 },
-    speed: 10,
-    canApply: null,
-    exp: 60,
-    runeReward: [70, 110]
+    canApply: 'rot',
+    buildupAmount: 38,
+    runeReward: [50, 80]
+  },
+
+  frost_mage: {
+    id: 'frost_mage',
+    name: 'Frost Mage',
+    emoji: '❄️',
+    hp: 70,
+    damage: 22,
+    damageType: 'magic',
+    canApply: 'frost',
+    buildupAmount: 40,
+    runeReward: [48, 75]
+  },
+
+  mad_nobles: {
+    id: 'mad_nobles',
+    name: 'Mad Noble',
+    emoji: '😵',
+    hp: 85,
+    damage: 19,
+    damageType: 'magic',
+    canApply: 'madness',
+    buildupAmount: 36,
+    runeReward: [45, 72]
+  },
+
+  sleep_bat: {
+    id: 'sleep_bat',
+    name: 'Sleep Bat',
+    emoji: '🦇',
+    hp: 60,
+    damage: 14,
+    damageType: 'physical',
+    canApply: 'sleep',
+    buildupAmount: 50,
+    runeReward: [40, 60]
   }
 };
