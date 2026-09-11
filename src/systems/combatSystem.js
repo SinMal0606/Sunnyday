@@ -443,13 +443,15 @@ function createBar(current, max) {
 
 function createCombatEmbed(run, combat) {
   const enemy = combat.enemy;
-  const playerHpBar = createBar(run.hp, run.maxHp);
-  const enemyHpBar = createBar(enemy.currentHp, enemy.maxHp);
+  const cd = combat.skillCooldown || 0;
+  const charge = combat.ultimateCharge || 0;
 
-  // Khai báo need / charge / cd
-  let cd = combat.skillCooldown || 0;
-  let charge = combat.ultimateCharge || 0;
   let need = 100;
+  try {
+    const { getCharacterData } = require('../characters');
+    const data = getCharacterData(run.character);
+    if (data?.ultimate?.chargeRequired) need = data.ultimate.chargeRequired;
+  } catch (_) {}
 
   try {
     const { getCharacterData } = require('../characters');
@@ -498,10 +500,25 @@ function createCombatButtons(run, isAuto = false) {
   }
 
   const combat = run.combat || {};
-  const data = getCharacterData(run.character);
-  const cd = combat.skillCooldown || 0;
-  const charge = combat.ultimateCharge || 0;
-  const need = data?.ultimate?.chargeRequired || 100;
+  let cd = combat.skillCooldown || 0;
+  let charge = combat.ultimateCharge || 0;
+  let need = 100;
+
+  try {
+    const { getCharacterData } = require('../characters');
+    const data = getCharacterData(run.character);
+    if (data?.ultimate?.chargeRequired) need = data.ultimate.chargeRequired;
+    if (data?.skill?.name && cd <= 0) {
+      // label skill dùng tên skill
+    }
+  } catch (_) {}
+
+  const skillLabel =
+    cd > 0
+      ? `Skill (${cd})`
+      : (getCharacterData(run.character)?.skill?.name || 'Skill').slice(0, 80);
+
+  const ultLabel = `Ult ${charge}/${need}`.slice(0, 80);
 
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -510,12 +527,12 @@ function createCombatButtons(run, isAuto = false) {
       .setStyle(ButtonStyle.Danger),
     new ButtonBuilder()
       .setCustomId('combat_skill')
-      .setLabel(cd > 0 ? `Skill (${cd})` : (data?.skill?.name || 'Skill'))
+      .setLabel(skillLabel)
       .setStyle(ButtonStyle.Primary)
       .setDisabled(cd > 0),
     new ButtonBuilder()
       .setCustomId('combat_ultimate')
-      .setLabel(`Ult ${charge}/${need}`)
+      .setLabel(ultLabel)
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(charge < need),
     new ButtonBuilder()
@@ -525,53 +542,39 @@ function createCombatButtons(run, isAuto = false) {
   );
 
   const rows = [row1];
-
-  // Nếu đang cầm Staff hoặc Seal → hiện Spell
-  const staff = run.inventory?.equipped?.staff;
-  const seal = run.inventory?.equipped?.seal;
-
   const spellButtons = [];
 
-  if (staff?.spells?.length >= 1) {
+  const staff = run.inventory?.equipped?.staff;
+  const seal = run.inventory?.equipped?.seal;
+  const spells = [...(staff?.spells || []), ...(seal?.spells || [])].filter(
+    sp => sp && sp.name && String(sp.name).trim().length > 0
+  );
+
+  spells.forEach((sp, i) => {
+    const label = String(sp.name).trim().slice(0, 80);
+    if (!label) return;
+
+    const customId = `combat_spell:${i}`;
+    if (customId.length > 100) return;
+
     spellButtons.push(
       new ButtonBuilder()
-        .setCustomId('combat_spell:0')
-        .setLabel(`Spell 1: ${staff.spells[0].name}`)
-        .setStyle(ButtonStyle.Primary)
+        .setCustomId(customId)
+        .setLabel(label)
+        .setStyle(ButtonStyle.Secondary)
     );
-  }
-  if (staff?.spells?.length >= 2) {
-    spellButtons.push(
-      new ButtonBuilder()
-        .setCustomId('combat_spell:1')
-        .setLabel(`Spell 2: ${staff.spells[1].name}`)
-        .setStyle(ButtonStyle.Primary)
-    );
+  });
+
+  // Chỉ thêm hàng spell khi có nút hợp lệ (tối đa 5 nút/hàng)
+  for (let i = 0; i < spellButtons.length && i < 5; i += 5) {
+    const chunk = spellButtons.slice(i, i + 5);
+    if (chunk.length > 0) {
+      rows.push(new ActionRowBuilder().addComponents(chunk));
+    }
   }
 
-  if (seal?.spells?.length >= 1) {
-    spellButtons.push(
-      new ButtonBuilder()
-        .setCustomId('combat_spell:0')
-        .setLabel(`Spell 1: ${seal.spells[0].name}`)
-        .setStyle(ButtonStyle.Success)
-    );
-  }
-  if (seal?.spells?.length >= 2) {
-    spellButtons.push(
-      new ButtonBuilder()
-        .setCustomId('combat_spell:1')
-        .setLabel(`Spell 2: ${seal.spells[1].name}`)
-        .setStyle(ButtonStyle.Success)
-    );
-  }
-
-  // Chỉ lấy tối đa 4 nút spell (Discord giới hạn)
-  if (spellButtons.length > 0) {
-    rows.push(new ActionRowBuilder().addComponents(spellButtons.slice(0, 4)));
-  }
-
-  return rows;
+  // Discord: tối đa 5 rows; mỗi row tối đa 5 buttons
+  return rows.slice(0, 5);
 }
 
 function calculateSpellDamage(run, spell) {
