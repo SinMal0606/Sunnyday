@@ -336,20 +336,19 @@ function createStatusState(stats = {}, isPlayer = true) {
 // ====================== TẠO COMBAT STATE ======================
 
 function createCombatState(run, locationId) {
-  const enemies = require('../data/enemies'); // hoặc path đúng của bạn
-  const combat = createCombatState(run, locationId);
+  const enemies = require('../data/enemies');
+  const floor = run.locationsVisited || 1;
 
-  // ★ Chọn quái theo location thay vì random full pool
-  const enemyId = pickEnemyIdForLocation(locationId);
-  let raw = enemies[enemyId];
+  const enemyId =
+    typeof pickEnemyIdForLocation === 'function'
+      ? pickEnemyIdForLocation(locationId)
+      : 'soldier';
 
-  // Fallback nếu thiếu data
+  let raw = enemies[enemyId] || enemies.soldier;
   if (!raw) {
-    console.warn('[combat] missing enemy', enemyId, '→ soldier');
-    raw = enemies.soldier || Object.values(enemies)[0];
+    raw = Object.values(enemies)[0];
   }
 
-  const floor = run.locationsVisited || 1;
   const template =
     typeof scaleEnemyTemplate === 'function'
       ? scaleEnemyTemplate(raw, floor)
@@ -378,6 +377,7 @@ function createCombatState(run, locationId) {
     };
   }
 
+  // ✅ return OBJECT, không gọi lại createCombatState
   return {
     enemy,
     turn: 1,
