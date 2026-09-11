@@ -337,7 +337,7 @@ function createStatusState(stats = {}, isPlayer = true) {
 
 function createCombatState(run, locationId) {
   const enemies = require('../data/enemies'); // hoặc path đúng của bạn
-  const combat = createCombatState(run, selectedId);
+  const combat = createCombatState(run, locationId);
 
   // ★ Chọn quái theo location thay vì random full pool
   const enemyId = pickEnemyIdForLocation(locationId);
