@@ -310,11 +310,9 @@ function processStatusEffects(statusState) {
 module.exports.processStatusEffects = processStatusEffects;
 
 function createStatusState(stats = {}, isPlayer = true) {
-  // Player: scale nhẹ theo vigor / mind / faith
   const vigor = stats.vigor || 10;
   const mind = stats.mind || 10;
   const faith = stats.faith || 10;
-
   const base = isPlayer ? 90 : 80;
 
   return {
@@ -327,7 +325,12 @@ function createStatusState(stats = {}, isPlayer = true) {
       sleep: base + Math.floor(faith * 1.2)
     },
     buildup: {
-      bleed: 0, frost: 0, poison: 0, rot: 0, madness: 0, sleep: 0
+      bleed: 0,
+      frost: 0,
+      poison: 0,
+      rot: 0,
+      madness: 0,
+      sleep: 0
     },
     active: {}
   };
@@ -740,7 +743,8 @@ module.exports = {
   handleRunDefeat,
   calculateSpellDamage,
   createCombatButtons,       
-  enemies
+  createStatusState,
+  applyWeaponClassBonus
 };
 module.exports.ensureCombatMeta = ensureCombatMeta;
 module.exports.canUseSkill = canUseSkill;
