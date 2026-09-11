@@ -2,7 +2,7 @@ const enemies = require('../data/enemies');
 const characters = require('../data/characters');
 const { getCharacter, getCharacterData } = require('../characters');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const combat = createCombatState(run, selectedId);
+
 
 // ====================== CÔNG THỨC SÁT THƯƠNG ======================
 
@@ -337,6 +337,7 @@ function createStatusState(stats = {}, isPlayer = true) {
 
 function createCombatState(run, locationId) {
   const enemies = require('../data/enemies'); // hoặc path đúng của bạn
+  const combat = createCombatState(run, selectedId);
 
   // ★ Chọn quái theo location thay vì random full pool
   const enemyId = pickEnemyIdForLocation(locationId);
