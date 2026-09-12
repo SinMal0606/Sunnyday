@@ -472,6 +472,7 @@ module.exports = {
         action === 'inv_equip_staff' ||
         action === 'inv_equip_seal'
       ) {
+        const equipKey = equipKeyMap[action];
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run) return;
         const typeMap = {
@@ -1013,7 +1014,7 @@ module.exports = {
           if (eq?.type === 'weapon') run.inventory.weapons.push(eq);
           else if (eq?.type === 'staff') run.inventory.staffs.push(eq);
           else if (eq?.type === 'seal') run.inventory.seals.push(eq);
-          if (equipKey === 'armor' && run.combat?.playerStatusState) {
+          if (eq?.type === 'armor' && run.combat?.playerStatusState) {
             // Reset về base rồi cộng lại giáp mới (tránh cộng dồn nhiều lần)
             run.combat.playerStatusState = createStatusState(run.stats || {}, true);
             applyArmorStatusResist(
