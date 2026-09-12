@@ -1,75 +1,42 @@
-module.exports = {
-  soldier: {
-    id: 'soldier',
-    name: 'Soldier',
-    emoji: '🛡️',
-    hp: 80,
-    damage: 18,
-    damageType: 'physical',
-    resistances: { physical: 10, fire: 5, magic: 5, lightning: 5, holy: 5 },
-    canApply: null,          // không gây status
-    buildupAmount: 0,
-    runeReward: [40, 65]
-  },
+const { readSheet } = require('./loadExcel');
 
-  swamp_creature: {
-    id: 'swamp_creature',
-    name: 'Swamp Creature',
-    emoji: '🐸',
-    hp: 95,
-    damage: 16,
-    damageType: 'physical',
-    resistances: { physical: 5, fire: 15, magic: 5, lightning: 0, holy: 5 },
-    canApply: 'poison',
-    buildupAmount: 42,
-    runeReward: [45, 70]
-  },
+function num(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
 
-  rot_infested: {
-    id: 'rot_infested',
-    name: 'Rot Infested',
-    emoji: '🦠',
-    hp: 110,
-    damage: 20,
-    damageType: 'physical',
-    canApply: 'rot',
-    buildupAmount: 38,
-    runeReward: [50, 80]
-  },
+function loadEnemies() {
+  const rows = readSheet('enemies.xlsx', 'enemies');
+  const map = {};
 
-  frost_mage: {
-    id: 'frost_mage',
-    name: 'Frost Mage',
-    emoji: '❄️',
-    hp: 70,
-    damage: 22,
-    damageType: 'magic',
-    canApply: 'frost',
-    buildupAmount: 40,
-    runeReward: [48, 75]
-  },
+  for (const row of rows) {
+    if (!row.id) continue;
+    const id = String(row.id).trim();
+    const canApply = row.canApply ? String(row.canApply).trim() : null;
 
-  mad_nobles: {
-    id: 'mad_nobles',
-    name: 'Mad Noble',
-    emoji: '😵',
-    hp: 85,
-    damage: 19,
-    damageType: 'magic',
-    canApply: 'madness',
-    buildupAmount: 36,
-    runeReward: [45, 72]
-  },
-
-  sleep_bat: {
-    id: 'sleep_bat',
-    name: 'Sleep Bat',
-    emoji: '🦇',
-    hp: 60,
-    damage: 14,
-    damageType: 'physical',
-    canApply: 'sleep',
-    buildupAmount: 50,
-    runeReward: [40, 60]
+    map[id] = {
+      id,
+      name: row.name || id,
+      emoji: row.emoji || '👾',
+      hp: num(row.hp, 80),
+      damage: num(row.damage, 15),
+      damageType: row.damageType || 'physical',
+      resistances: {
+        physical: num(row.res_physical),
+        fire: num(row.res_fire),
+        magic: num(row.res_magic),
+        lightning: num(row.res_lightning),
+        holy: num(row.res_holy)
+      },
+      canApply: canApply || null,
+      buildupAmount: num(row.buildupAmount, 0),
+      runeReward: [num(row.runeMin, 40), num(row.runeMax, 65)],
+      description: row.description || ''
+    };
   }
-};
+
+  console.log(`[enemies.xlsx] loaded ${Object.keys(map).length} enemies`);
+  return map;
+}
+
+module.exports = loadEnemies();

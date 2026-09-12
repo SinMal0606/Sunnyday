@@ -341,6 +341,9 @@ function createStatusState(stats = {}, isPlayer = true) {
 function createCombatState(run, locationId) {
   const enemies = require('../data/enemies');
   const floor = run.locationsVisited || 1;
+  const playerStatusState = createStatusState(run.stats || {}, true);
+const armor = run.inventory?.equipped?.armor;
+applyArmorStatusResist(playerStatusState, armor);
 
   const enemyId =
     typeof pickEnemyIdForLocation === 'function'
@@ -796,6 +799,19 @@ function applyWeaponClassBonus(run, damage) {
   }
   return damage;
 }
+
+function applyArmorStatusResist(statusState, armor) {
+  if (!statusState?.resistance || !armor?.statusResist) return statusState;
+
+  for (const [key, val] of Object.entries(armor.statusResist)) {
+    if (val && statusState.resistance[key] != null) {
+      statusState.resistance[key] += Number(val) || 0;
+    }
+  }
+  return statusState;
+}
+
+module.exports.applyArmorStatusResist = applyArmorStatusResist;
 
 module.exports = {
   createCombatState,

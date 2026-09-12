@@ -59,6 +59,15 @@ function loadEquipments() {
         agility: num(row.bonus_agility),
         mind: num(row.bonus_mind)
       },
+      // ★ Kháng status
+      statusResist: {
+        bleed: num(row.resist_bleed),
+        frost: num(row.resist_frost),
+        poison: num(row.resist_poison),
+        rot: num(row.resist_rot),
+        madness: num(row.resist_madness),
+        sleep: num(row.resist_sleep)
+      },
       description: row.description || ''
     };
   }

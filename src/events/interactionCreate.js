@@ -834,7 +834,9 @@ module.exports = {
             const combat = createCombatState(run, selectedId);
             ensureCombatMeta(combat, run);
             if (!combat.playerStatusState) {
-              combat.playerStatusState = createStatusState(run.stats || {}, true);
+              const playerStatusState = createStatusState(run.stats || {}, true);
+              applyArmorStatusResist(playerStatusState, run.inventory?.equipped?.armor);
+              combat.playerStatusState = playerStatusState;
             }
             if (combat.enemy && !combat.enemy.statusState) {
               combat.enemy.statusState = createStatusState({}, false);
@@ -1009,9 +1011,19 @@ module.exports = {
           }
           const eq = chosen.data;
           if (eq?.type === 'weapon') run.inventory.weapons.push(eq);
-          else if (eq?.type === 'armor') run.inventory.armors.push(eq);
           else if (eq?.type === 'staff') run.inventory.staffs.push(eq);
           else if (eq?.type === 'seal') run.inventory.seals.push(eq);
+          if (equipKey === 'armor' && run.combat?.playerStatusState) {
+            // Reset về base rồi cộng lại giáp mới (tránh cộng dồn nhiều lần)
+            run.combat.playerStatusState = createStatusState(run.stats || {}, true);
+            applyArmorStatusResist(
+              run.combat.playerStatusState,
+              run.inventory.equipped.armor
+            );
+            // Giữ lại buildup + active cũ nếu muốn:
+            // (nâng cao: chỉ sửa resistance, giữ buildup/active)
+            run.markModified('combat');
+          }
           resultMsg = `Nhận: **${eq?.name || 'Trang bị'}**`;
           if (eq?.spells?.length) resultMsg += `\nSpell: ${eq.spells.map(s => s.name).join(' + ')}`;
         }

@@ -14,6 +14,9 @@ function createEquipmentInstance(templateId, category) {
 if (template.bonus) instance.bonus = { ...template.bonus };
 if (template.status) instance.status = template.status;
 if (template.buildup != null) instance.buildup = Number(template.buildup);
+if (template.statusResist) {
+  instance.statusResist = { ...template.statusResist };
+}
 
   const instance = {
     id: template.id,
