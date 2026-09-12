@@ -441,10 +441,63 @@ function createBar(current, max) {
   return '█'.repeat(filled) + '░'.repeat(10 - filled);
 }
 
+function formatStatusState(statusState, label = 'Status') {
+  if (!statusState) return `${label}: —`;
+
+  const lines = [];
+  const res = statusState.resistance || {};
+  const build = statusState.buildup || {};
+  const active = statusState.active || {};
+
+  // Build-up đang tích (chỉ hiện > 0)
+  const buildLines = Object.keys(build)
+    .filter(k => (build[k] || 0) > 0)
+    .map(k => {
+      const cur = Math.floor(build[k]);
+      const max = res[k] || 100;
+      const pct = Math.min(100, Math.floor((cur / max) * 100));
+      const barLen = 6;
+      const filled = Math.round((pct / 100) * barLen);
+      const bar = '▓'.repeat(filled) + '░'.repeat(barLen - filled);
+      return `${statusEmoji(k)} ${k} ${bar} ${cur}/${max}`;
+    });
+
+  // Effect đã proc
+  const activeLines = Object.keys(active).map(k => {
+    const a = active[k];
+    const turns = a?.turns != null ? ` (${a.turns}t)` : '';
+    if (k === 'poison') return `☠️ Poison${turns} DoT ${a.tickDamage || '?'}`;
+    if (k === 'rot') return `🦠 Rot${turns} DoT ${a.tickDamage || '?'}`;
+    if (k === 'frost') return `❄️ Frost${turns} -${Math.floor((a.resistPenalty || 0.2) * 100)}% kháng`;
+    if (k === 'sleep') return `😴 Sleep${turns}`;
+    return `${statusEmoji(k)} ${k}${turns}`;
+  });
+
+  if (!buildLines.length && !activeLines.length) {
+    return `${label}: sạch`;
+  }
+
+  const parts = [];
+  if (buildLines.length) parts.push(buildLines.join('\n'));
+  if (activeLines.length) parts.push('**Active:**\n' + activeLines.join('\n'));
+  return parts.join('\n');
+}
+
+function statusEmoji(type) {
+  const map = {
+    bleed: '🩸',
+    frost: '❄️',
+    poison: '☠️',
+    rot: '🦠',
+    madness: '😵',
+    sleep: '😴'
+  };
+  return map[type] || '•';
+}
+
 function createCombatEmbed(run, combat) {
   const enemy = combat.enemy;
 
-  // ★ Khai báo trước khi dùng
   function createBar(cur, max) {
     const percent = Math.max(0, Math.min(100, (cur / Math.max(1, max)) * 100));
     const filled = Math.round(percent / 10);
@@ -463,6 +516,9 @@ function createCombatEmbed(run, combat) {
     if (data?.ultimate?.chargeRequired) need = data.ultimate.chargeRequired;
   } catch (_) {}
 
+  const playerStatusText = formatStatusState(combat.playerStatusState, 'Bạn');
+  const enemyStatusText = formatStatusState(enemy.statusState, enemy.name);
+
   return new EmbedBuilder()
     .setTitle(`⚔️ Combat - ${enemy.emoji || ''} ${enemy.name}`)
     .setColor(0xE74C3C)
@@ -478,11 +534,20 @@ function createCombatEmbed(run, combat) {
         value: `HP: ${enemyHpBar} **${Math.max(0, enemy.currentHp)}/${enemy.maxHp}**`,
         inline: true
       },
-      { name: 'Turn', value: `${combat.turn || 1}`, inline: true },
       {
-        name: 'Skill / Ultimate',
-        value: `CD: **${cd}** | Charge: **${charge}/${need}**`,
-        inline: false
+        name: 'Turn / Skill',
+        value: `Turn **${combat.turn || 1}**\nCD: **${cd}** | Ult: **${charge}/${need}**`,
+        inline: true
+      },
+      {
+        name: 'Status (Bạn)',
+        value: playerStatusText.slice(0, 1024) || 'sạch',
+        inline: true
+      },
+      {
+        name: `Status (${enemy.name})`,
+        value: enemyStatusText.slice(0, 1024) || 'sạch',
+        inline: true
       }
     );
 }
@@ -757,3 +822,4 @@ module.exports.applySkillEffects = applySkillEffects;
 module.exports.tickCombatMeta = tickCombatMeta;
 module.exports.locationEnemyMap = locationEnemyMap;
 module.exports.pickEnemyIdForLocation = pickEnemyIdForLocation;
+module.exports.formatStatusState = formatStatusState;
