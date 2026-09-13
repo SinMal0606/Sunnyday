@@ -106,26 +106,21 @@ function addUltimateCharge(combat, characterId, amount) {
 
 function applySkillEffects(combat, effects = {}) {
   if (!effects) return;
+  combat.playerBuffs = combat.playerBuffs || {};
 
   if (effects.selfBuff) {
-    combat.playerBuffs = combat.playerBuffs || {};
     for (const [key, val] of Object.entries(effects.selfBuff)) {
-      if (val && typeof val === 'object' && val.value != null) {
+      if (val && typeof val === 'object') {
         combat.playerBuffs[key] = {
           value: val.value,
-          turns: val.turns || 3
+          turns: val.turns || 2
         };
       }
     }
   }
 
-  if (effects.enemyDebuff) {
-    combat.enemyDebuffs = combat.enemyDebuffs || {};
-    Object.assign(combat.enemyDebuffs, effects.enemyDebuff);
-  }
-
-  if (effects.cleansePlayer) {
-    combat.playerStatus = {};
+  if (effects.spendAllMana) {
+    // handler sẽ set run.mana = 0
   }
 }
 
@@ -659,10 +654,36 @@ function calculateSpellDamage(run, spell) {
   const raw = (base + scaling) * (spell.multiplier || 1.5);
   const variance = 0.88 + Math.random() * 0.24;
 
+  const terra = run.combat?.playerBuffs?.terraMagica;
+  if (run.character === 'recluse' && terra?.turns > 0) {
+    const isMagicLike =
+      spell.damageType === 'magic' ||
+      spell.type === 'sorcery' ||
+      ['magic', 'fire', 'lightning', 'holy'].includes(spell.damageType);
+    if (isMagicLike) {
+      amount = Math.floor(amount * (1 + (terra.value || 0.25)));
+    }
+  }
+
   return {
     amount: Math.floor(raw * variance),
     type: spell.damageType || 'magic'
   };
+}
+
+function applyRecluseOnHitEffects(run, combat, damageType, log) {
+  if (run.character !== 'recluse' || !combat?.playerBuffs) return;
+
+  // Cocktail: hồi mana
+  const cocktail = combat.playerBuffs.elementalCocktail;
+  if (cocktail && cocktail.turns > 0 && damageType && damageType !== 'physical') {
+    const restore = Math.floor((run.maxMana || 50) * (cocktail.value || 0.2));
+    const before = run.mana;
+    run.mana = Math.min(run.maxMana, run.mana + restore);
+    if (run.mana > before) {
+      log.push(`🔮 Cocktail hồi **${run.mana - before}** Mana!`);
+    }
+  }
 }
 
 // ====================== AUTO LOGIC ======================

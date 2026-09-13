@@ -12,6 +12,7 @@ const charactersLegacy = require('../data/characters');
 const Run = require('../models/Run');
 const User = require('../models/User');
 const { applyStatusBuildup } = require('../systems/combatSystem');
+const { ... applyRecluseOnHitEffects } = require('../systems/combatSystem');
 
 const {
   applyCharacterToRun,
@@ -1231,6 +1232,7 @@ module.exports = {
         else {
           enemy.currentHp -= finalDamage;
           log.push(`⚔️ Tấn công **${finalDamage}** (${dmgInfo.type})!`);
+          applyRecluseOnHitEffects(run, combat, dmgInfo.type, log);
         }
 
         const weapon = run.inventory?.equipped?.weapon;
@@ -1333,6 +1335,7 @@ if (weapon?.status && enemy.statusState) {
             skillResult.damageType || 'physical',
             enemy.resistances || {}
           );
+          applyRecluseOnHitEffects(run, combat, dtype, log);
         }
         applySkillEffects(combat, skillResult.effects);
         combat.skillCooldown = data.skill.cooldown || 3;
@@ -1407,6 +1410,10 @@ if (weapon?.status && enemy.statusState) {
             ultResult.damageType || 'physical',
             enemy.resistances || {}
           );
+          applyRecluseOnHitEffects(run, combat, dtype, log);
+        }
+        if (ultResult.effects?.spendAllMana || ultResult.manaSpent != null) {
+          run.mana = 0;
         }
         applySkillEffects(combat, ultResult.effects);
         combat.ultimateCharge = 0;
@@ -1475,6 +1482,7 @@ if (weapon?.status && enemy.statusState) {
         const finalDamage = applyResistance(dmgInfo.amount, dmgInfo.type, enemy.resistances || {});
         enemy.currentHp -= finalDamage;
         log.push(`✨ **${spell.name}** **${finalDamage}** (${dmgInfo.type})!`);
+        applyRecluseOnHitEffects(run, combat, dmgInfo.type, log);
 
         const data = getCharacterData(run.character);
         addUltimateCharge(combat, run.character, data?.ultimate?.chargeOnSkill || 20);
