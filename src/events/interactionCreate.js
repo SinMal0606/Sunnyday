@@ -473,9 +473,10 @@ module.exports = {
         action === 'inv_equip_staff' ||
         action === 'inv_equip_seal'
       ) {
-        const equipKey = equipKeyMap[action];
         const run = await Run.findOne({ userId: interaction.user.id, status: 'active' });
         if (!run) return;
+
+        // ★ Khai báo TRƯỚC
         const typeMap = {
           inv_equip_weapon: 'weapons',
           inv_equip_armor: 'armors',
@@ -488,21 +489,31 @@ module.exports = {
           inv_equip_staff: 'staff',
           inv_equip_seal: 'seal'
         };
-        const items = run.inventory?.[typeMap[action]] || [];
+
+        const listKey = typeMap[action];
+        const equipKey = equipKeyMap[action];
+        const items = run.inventory?.[listKey] || [];
+
         if (!items.length) {
-          return interaction.followUp({ content: 'Không có món để mặc.', flags: MessageFlags.Ephemeral }).catch(() => {});
+          return interaction.followUp({
+            content: 'Không có món để mặc.',
+            flags: MessageFlags.Ephemeral
+          }).catch(() => {});
         }
+
         const options = items.slice(0, 25).map((item, index) => ({
           label: String(item.name).slice(0, 100),
           description: String(item.description || item.rarity || 'Trang bị').slice(0, 50),
           value: String(index)
         }));
+
         const select = new StringSelectMenuBuilder()
-          .setCustomId(`inv_select:${equipKeyMap[action]}`)
-          .setPlaceholder(`Chọn ${equipKeyMap[action]}`)
+          .setCustomId(`inv_select:${equipKey}`)
+          .setPlaceholder(`Chọn ${equipKey}`)
           .addOptions(options);
+
         await interaction.editReply({
-          content: `Chọn **${equipKeyMap[action]}**:`,
+          content: `Chọn **${equipKey}**:`,
           embeds: [],
           components: [new ActionRowBuilder().addComponents(select)]
         });
@@ -1329,14 +1340,18 @@ if (weapon?.status && enemy.statusState) {
         });
         log.push(...(skillResult.log || []));
         if (skillResult.heal) run.hp = Math.min(run.maxHp, run.hp + skillResult.heal);
-        if (skillResult.damage > 0) {
-          enemy.currentHp -= applyResistance(
-            skillResult.damage,
-            skillResult.damageType || 'physical',
-            enemy.resistances || {}
-          );
-          applyRecluseOnHitEffects(run, combat, dtype, log);
-        }
+        const dtype = skillResult.damageType || 'physical';
+
+if (skillResult.damage > 0) {
+  const finalDamage = applyResistance(
+    skillResult.damage,
+    dtype,
+    enemy.resistances || {}
+  );
+  enemy.currentHp -= finalDamage;
+
+  applyRecluseOnHitEffects(run, combat, dtype, log);
+}
         applySkillEffects(combat, skillResult.effects);
         combat.skillCooldown = data.skill.cooldown || 3;
         addUltimateCharge(combat, run.character, data.ultimate?.chargeOnSkill || 28);
@@ -1404,6 +1419,9 @@ if (weapon?.status && enemy.statusState) {
         });
         log.push(...(ultResult.log || []));
         if (ultResult.heal) run.hp = Math.min(run.maxHp, run.hp + ultResult.heal);
+
+        const dtype = skillResult.damageType || 'physical';
+
         if (ultResult.damage > 0) {
           enemy.currentHp -= applyResistance(
             ultResult.damage,

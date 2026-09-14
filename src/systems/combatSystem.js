@@ -672,15 +672,15 @@ function calculateSpellDamage(run, spell) {
 }
 
 function applyRecluseOnHitEffects(run, combat, damageType, log) {
-  if (run.character !== 'recluse' || !combat?.playerBuffs) return;
+  if (!run || run.character !== 'recluse' || !combat?.playerBuffs) return;
+  if (!damageType || damageType === 'physical') return;
 
-  // Cocktail: hồi mana
   const cocktail = combat.playerBuffs.elementalCocktail;
-  if (cocktail && cocktail.turns > 0 && damageType && damageType !== 'physical') {
+  if (cocktail && cocktail.turns > 0) {
     const restore = Math.floor((run.maxMana || 50) * (cocktail.value || 0.2));
-    const before = run.mana;
-    run.mana = Math.min(run.maxMana, run.mana + restore);
-    if (run.mana > before) {
+    const before = run.mana || 0;
+    run.mana = Math.min(run.maxMana, before + restore);
+    if (log && run.mana > before) {
       log.push(`🔮 Cocktail hồi **${run.mana - before}** Mana!`);
     }
   }
@@ -849,7 +849,8 @@ module.exports = {
   calculateSpellDamage,
   createCombatButtons,       
   createStatusState,
-  applyWeaponClassBonus
+  applyWeaponClassBonus,
+  applyRecluseOnHitEffects
 };
 module.exports.ensureCombatMeta = ensureCombatMeta;
 module.exports.canUseSkill = canUseSkill;

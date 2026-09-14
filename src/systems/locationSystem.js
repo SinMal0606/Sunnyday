@@ -1,5 +1,6 @@
 const locations = require('../data/locations');
 const minibosses = require('../data/minibosses');
+const enemies = require('../data/enemies');
 
 function generateLocationChoices(count = 3, excludeIds = []) {
   const available = Object.values(locations).filter(loc => !excludeIds.includes(loc.id));
@@ -40,8 +41,18 @@ function getSpecialEvent(locationsVisited) {
 }
 
 function getMiniboss(type) {
-  return minibosses[type] || null;
+  if (type === 'miniboss1') {
+    const pool = ['miniboss_sentinel', 'miniboss_knight'].map(id => enemies[id]).filter(Boolean);
+    return pool[Math.floor(Math.random() * pool.length)] || enemies.soldier;
+  }
+  if (type === 'miniboss2') {
+    const pool = ['miniboss_warden', 'miniboss_guardian'].map(id => enemies[id]).filter(Boolean);
+    return pool[Math.floor(Math.random() * pool.length)] || enemies.soldier;
+  }
+  return null;
 }
+
+module.exports.getMiniboss = getMiniboss;
 
 /**
  * Xử lý sự kiện khi vào một location
