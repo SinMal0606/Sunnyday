@@ -12,7 +12,6 @@ const charactersLegacy = require('../data/characters');
 const Run = require('../models/Run');
 const User = require('../models/User');
 const { applyStatusBuildup } = require('../systems/combatSystem');
-const { ... applyRecluseOnHitEffects } = require('../systems/combatSystem');
 
 const {
   applyCharacterToRun,
@@ -87,6 +86,21 @@ function buildPlayerResist(run) {
     lightning: (run.stats?.dexterity || 10) * 0.7 + (armorDef.lightning || 0),
     holy: (run.stats?.faith || 10) * 0.7 + (armorDef.holy || 0)
   };
+}
+
+function applyRecluseOnHitEffects(run, combat, damageType, log) {
+  if (!run || run.character !== 'recluse' || !combat?.playerBuffs) return;
+  if (!damageType || damageType === 'physical') return;
+
+  const cocktail = combat.playerBuffs.elementalCocktail;
+  if (!cocktail || !(cocktail.turns > 0)) return;
+
+  const restore = Math.floor((run.maxMana || 50) * (cocktail.value || 0.2));
+  const before = run.mana || 0;
+  run.mana = Math.min(run.maxMana, before + restore);
+  if (log && run.mana > before) {
+    log.push(`🔮 Cocktail hồi **${run.mana - before}** Mana!`);
+  }
 }
 
 module.exports = {
